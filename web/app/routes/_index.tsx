@@ -152,6 +152,7 @@ export default function Index() {
   const [isPending, startTransition] = useTransition();
   const [requestsCurrentPage, setRequestsCurrentPage] = useState(1);
   const [hasMoreRequests, setHasMoreRequests] = useState(true);
+  const [totalRequestsCount, setTotalRequestsCount] = useState(0);
   const [conversationsCurrentPage, setConversationsCurrentPage] = useState(1);
   const [hasMoreConversations, setHasMoreConversations] = useState(true);
   const itemsPerPage = 50;
@@ -175,11 +176,12 @@ export default function Index() {
       
       const data = await response.json();
       const requests = data.requests || [];
+      const total = data.total || 0;
       const mappedRequests = requests.map((req: any, index: number) => ({
         ...req,
-        id: req.requestId ? `${req.requestId}_${index}` : `request_${index}` 
+        id: req.requestId ? `${req.requestId}_${index}` : `request_${index}`
       }));
-      
+
       startTransition(() => {
         if (loadMore) {
           setRequests(prev => [...prev, ...mappedRequests]);
@@ -188,6 +190,7 @@ export default function Index() {
         }
         setRequestsCurrentPage(pageToFetch);
         setHasMoreRequests(mappedRequests.length === itemsPerPage);
+        setTotalRequestsCount(total);
       });
     } catch (error) {
       console.error('Failed to load requests:', error);
@@ -623,7 +626,7 @@ export default function Index() {
                   {viewMode === "requests" ? "Total Requests" : "Total Conversations"}
                 </p>
                 <p className="text-2xl font-semibold text-gray-900 mt-1">
-                  {viewMode === "requests" ? requests.length : conversations.length}
+                  {viewMode === "requests" ? totalRequestsCount : conversations.length}
                 </p>
               </div>
             </div>
@@ -636,7 +639,9 @@ export default function Index() {
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">Request History</h2>
+                <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
+                  Request History <span className="font-normal text-gray-500 normal-case">(most recent first)</span>
+                </h2>
               </div>
             </div>
             <div className="divide-y divide-gray-200">

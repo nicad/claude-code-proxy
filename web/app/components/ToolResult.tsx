@@ -13,34 +13,15 @@ export function ToolResult({ content, toolId, isError = false }: ToolResultProps
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Detect if this is likely code content from a Read tool
+  // Only detect as code if it has the line number pattern from cat -n output
   const isCodeContent = (content: string): boolean => {
     if (typeof content !== 'string') return false;
-    
-    // Check for line numbers pattern (e.g., "     1→" from cat -n output)
+
+    // Only consider it code if it has the line numbers pattern (e.g., "     1→" from cat -n output)
+    // This is the most reliable indicator that it's actual file content from the Read tool
     const hasLineNumbers = /^\s*\d+→/m.test(content);
-    
-    // Check for common code patterns
-    const hasCodePatterns = (
-      content.includes('function') ||
-      content.includes('const ') ||
-      content.includes('let ') ||
-      content.includes('var ') ||
-      content.includes('import ') ||
-      content.includes('export ') ||
-      content.includes('class ') ||
-      content.includes('interface ') ||
-      content.includes('type ') ||
-      content.includes('def ') ||
-      content.includes('if (') ||
-      content.includes('for (') ||
-      content.includes('while (') ||
-      content.includes('{') && content.includes('}')
-    );
-    
-    // Check for file extension indicators in the content
-    const hasFileExtension = /\.(js|jsx|ts|tsx|py|rb|go|rs|java|cpp|c|h|cs|php|swift|kt|scala|r|sh|bash|sql|html|css|json|yaml|yml|toml|md|xml)$/m.test(content);
-    
-    return hasLineNumbers || (hasCodePatterns && content.length > 100);
+
+    return hasLineNumbers;
   };
 
   // Extract code from cat -n format if present
@@ -80,8 +61,15 @@ export function ToolResult({ content, toolId, isError = false }: ToolResultProps
       return content.content;
     }
 
-    // If it's an array, join with newlines
+    // If it's an array of text blocks, extract and join the text
     if (Array.isArray(content)) {
+      const textParts = content
+        .filter(item => item && typeof item === 'object' && item.type === 'text' && item.text)
+        .map(item => item.text);
+      if (textParts.length > 0) {
+        return textParts.join('\n\n');
+      }
+      // Fallback for other array content
       return content.map(item => formatValue(item)).join('\n');
     }
 
@@ -99,9 +87,6 @@ export function ToolResult({ content, toolId, isError = false }: ToolResultProps
   const shouldTruncate = isLargeContent && !isExpanded;
   const truncatedContent = shouldTruncate ? truncateText(displayContent, 500) : displayContent;
 
-  // Determine if content should be rendered as JSON
-  const isJSONContent = isComplexObject(content) || (typeof content === 'string' && content.startsWith('{'));
-  
   // Check if this is code content
   const isCode = isCodeContent(displayContent);
   const { code: extractedCode } = isCode ? extractCodeFromCatN(displayContent) : { code: displayContent };
@@ -188,30 +173,21 @@ export function ToolResult({ content, toolId, isError = false }: ToolResultProps
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                {isCode ? 'Code' : isJSONContent ? 'JSON' : 'Text'}
+                {isCode ? 'Code' : 'Text'}
               </span>
-              {!isCode && (
-                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                  {displayContent.length} chars
-                </span>
-              )}
+              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                {displayContent.length.toLocaleString()} chars
+              </span>
             </div>
           </div>
           
           {/* Main content */}
           {isCode ? (
             <CodeViewer code={extractedCode} fileName={content.fileName} />
-          ) : isJSONContent ? (
-            <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono overflow-x-auto bg-gray-50 rounded-lg p-3 border border-gray-200">
+          ) : (
+            <pre className="text-sm text-gray-700 whitespace-pre-wrap break-words font-sans leading-relaxed overflow-x-auto bg-gray-50 rounded-lg p-3 border border-gray-200">
               {truncatedContent}
             </pre>
-          ) : (
-            <div 
-              className="text-sm text-gray-700 whitespace-pre-wrap break-words leading-relaxed"
-              dangerouslySetInnerHTML={{ 
-                __html: truncatedContent.replace(/\n/g, '<br>') 
-              }}
-            />
           )}
           
           {/* Expand/collapse controls */}

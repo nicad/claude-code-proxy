@@ -20,14 +20,21 @@ export function formatValue(value: any): string {
 
 /**
  * Formats JSON with proper indentation and returns a formatted string
+ * For strings containing newlines, expands them for readability
  */
-export function formatJSON(obj: any, maxLength: number = 1000): string {
+export function formatJSON(obj: any, maxLength: number = 50000): string {
   try {
     const jsonString = JSON.stringify(obj, null, 2);
-    if (jsonString.length > maxLength) {
-      return jsonString.substring(0, maxLength) + '...';
+    // Replace escaped newlines in string values with actual newlines for readability
+    // This makes long text content much easier to read
+    const formatted = jsonString.replace(/"([^"]*?)\\n([^"]*?)"/g, (match) => {
+      // Unescape the newlines within the string value
+      return match.replace(/\\n/g, '\n');
+    });
+    if (formatted.length > maxLength) {
+      return formatted.substring(0, maxLength) + '\n... (truncated)';
     }
-    return jsonString;
+    return formatted;
   } catch (error) {
     return String(obj);
   }

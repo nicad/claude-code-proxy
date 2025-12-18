@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Wrench, Code, FileText, Database, AlertCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, Wrench, Code, FileText, Database, AlertCircle, Brain } from 'lucide-react';
 import { ToolResult } from './ToolResult';
 import { ToolUse } from './ToolUse';
 import { ImageContent } from './ImageContent';
@@ -91,6 +91,9 @@ export function MessageContent({ content }: MessageContentProps) {
 
       case 'image':
         return <ImageContent content={content} />;
+
+      case 'thinking':
+        return <ThinkingContent content={content} />;
 
       default:
         return (
@@ -394,7 +397,56 @@ function SystemReminderContent({ content }: { content: string }) {
           )}
         </div>
       )}
-      
+
+    </div>
+  );
+}
+
+// Component to handle thinking content
+function ThinkingContent({ content }: { content: any }) {
+  const thinking = content.thinking || '';
+  const signature = content.signature || '';
+
+  return (
+    <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-5 shadow-sm">
+      <div className="flex items-center space-x-3 mb-4">
+        <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-sm">
+          <Brain className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <span className="text-purple-900 font-semibold text-base">Thinking</span>
+          <div className="text-sm text-purple-700">Internal reasoning</div>
+        </div>
+      </div>
+
+      {/* Thinking content */}
+      {thinking && (
+        <div className="bg-white rounded-lg border border-purple-200 p-4 mb-3">
+          <pre className="text-sm text-gray-700 whitespace-pre-wrap break-words font-sans leading-relaxed max-h-96 overflow-y-auto">
+            {thinking}
+          </pre>
+        </div>
+      )}
+
+      {/* Signature */}
+      {signature && (
+        <div className="bg-purple-100 rounded-lg border border-purple-200 p-3 mb-3">
+          <div className="text-xs text-purple-700 font-medium mb-1">Signature</div>
+          <pre className="text-xs text-purple-600 whitespace-pre-wrap break-words font-mono">
+            {signature}
+          </pre>
+        </div>
+      )}
+
+      {/* Show raw content */}
+      <details className="cursor-pointer">
+        <summary className="text-xs text-purple-600 hover:text-purple-800 transition-colors">
+          Show raw content
+        </summary>
+        <pre className="mt-2 text-xs overflow-x-auto bg-white rounded p-3 border border-purple-200 font-mono whitespace-pre-wrap">
+          {JSON.stringify(content, null, 2)}
+        </pre>
+      </details>
     </div>
   );
 }
