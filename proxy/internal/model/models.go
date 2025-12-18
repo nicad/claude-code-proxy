@@ -38,6 +38,9 @@ type RequestLog struct {
 	ContentType   string              `json:"contentType"`
 	PromptGrade   *PromptGrade        `json:"promptGrade,omitempty"`
 	Response      *ResponseLog        `json:"response,omitempty"`
+	TokensInput   int64               `json:"tokensInput,omitempty"`
+	TokensOutput  int64               `json:"tokensOutput,omitempty"`
+	TokensCached  int64               `json:"tokensCached,omitempty"`
 }
 
 type ResponseLog struct {

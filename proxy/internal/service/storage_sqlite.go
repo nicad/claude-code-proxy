@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	_ "github.com/marcboeker/go-duckdb"
+	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/seifghazi/claude-code-monitor/internal/config"
 	"github.com/seifghazi/claude-code-monitor/internal/model"
@@ -18,7 +18,7 @@ type sqliteStorageService struct {
 }
 
 func NewSQLiteStorageService(cfg *config.StorageConfig) (StorageService, error) {
-	db, err := sql.Open("duckdb", cfg.DBPath)
+	db, err := sql.Open("sqlite3", cfg.DBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -51,6 +51,9 @@ func (s *sqliteStorageService) createTables() error {
 		model TEXT,
 		original_model TEXT,
 		routed_model TEXT,
+		tokens_input BIGINT,
+		tokens_output BIGINT,
+		tokens_cached BIGINT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -111,7 +114,7 @@ func (s *sqliteStorageService) GetRequests(page, limit int) ([]model.RequestLog,
 	// Get paginated results
 	offset := (page - 1) * limit
 	query := `
-		SELECT id, timestamp, method, endpoint, headers, body, model, user_agent, content_type, prompt_grade, response, original_model, routed_model
+		SELECT id, timestamp, method, endpoint, headers, body, model, user_agent, content_type, prompt_grade, response, original_model, routed_model, tokens_input, tokens_output, tokens_cached
 		FROM requests
 		ORDER BY timestamp DESC
 		LIMIT ? OFFSET ?
@@ -128,6 +131,7 @@ func (s *sqliteStorageService) GetRequests(page, limit int) ([]model.RequestLog,
 		var req model.RequestLog
 		var headersJSON, bodyJSON string
 		var promptGradeJSON, responseJSON sql.NullString
+		var tokensInput, tokensOutput, tokensCached sql.NullInt64
 
 		err := rows.Scan(
 			&req.RequestID,
@@ -143,6 +147,9 @@ func (s *sqliteStorageService) GetRequests(page, limit int) ([]model.RequestLog,
 			&responseJSON,
 			&req.OriginalModel,
 			&req.RoutedModel,
+			&tokensInput,
+			&tokensOutput,
+			&tokensCached,
 		)
 		if err != nil {
 			// Error scanning row - skip
@@ -174,6 +181,16 @@ func (s *sqliteStorageService) GetRequests(page, limit int) ([]model.RequestLog,
 			if err := json.Unmarshal([]byte(responseJSON.String), &resp); err == nil {
 				req.Response = &resp
 			}
+		}
+
+		if tokensInput.Valid {
+			req.TokensInput = tokensInput.Int64
+		}
+		if tokensOutput.Valid {
+			req.TokensOutput = tokensOutput.Int64
+		}
+		if tokensCached.Valid {
+			req.TokensCached = tokensCached.Int64
 		}
 
 		requests = append(requests, req)
@@ -217,8 +234,25 @@ func (s *sqliteStorageService) UpdateRequestWithResponse(request *model.RequestL
 		return fmt.Errorf("failed to marshal response: %w", err)
 	}
 
-	query := "UPDATE requests SET response = ? WHERE id = ?"
-	_, err = s.db.Exec(query, string(responseJSON), request.RequestID)
+	// Extract token counts from response body
+	var tokensInput, tokensOutput, tokensCached int64
+	if request.Response != nil && len(request.Response.Body) > 0 {
+		var respBody struct {
+			Usage struct {
+				InputTokens          int64 `json:"input_tokens"`
+				OutputTokens         int64 `json:"output_tokens"`
+				CacheReadInputTokens int64 `json:"cache_read_input_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal(request.Response.Body, &respBody); err == nil {
+			tokensInput = respBody.Usage.InputTokens
+			tokensOutput = respBody.Usage.OutputTokens
+			tokensCached = respBody.Usage.CacheReadInputTokens
+		}
+	}
+
+	query := "UPDATE requests SET response = ?, tokens_input = ?, tokens_output = ?, tokens_cached = ? WHERE id = ?"
+	_, err = s.db.Exec(query, string(responseJSON), tokensInput, tokensOutput, tokensCached, request.RequestID)
 	if err != nil {
 		return fmt.Errorf("failed to update request with response: %w", err)
 	}
@@ -233,7 +267,7 @@ func (s *sqliteStorageService) EnsureDirectoryExists() error {
 
 func (s *sqliteStorageService) GetRequestByShortID(shortID string) (*model.RequestLog, string, error) {
 	query := `
-		SELECT id, timestamp, method, endpoint, headers, body, model, user_agent, content_type, prompt_grade, response, original_model, routed_model
+		SELECT id, timestamp, method, endpoint, headers, body, model, user_agent, content_type, prompt_grade, response, original_model, routed_model, tokens_input, tokens_output, tokens_cached
 		FROM requests
 		WHERE id LIKE ?
 		ORDER BY timestamp DESC
@@ -243,6 +277,7 @@ func (s *sqliteStorageService) GetRequestByShortID(shortID string) (*model.Reque
 	var req model.RequestLog
 	var headersJSON, bodyJSON string
 	var promptGradeJSON, responseJSON sql.NullString
+	var tokensInput, tokensOutput, tokensCached sql.NullInt64
 
 	err := s.db.QueryRow(query, "%"+shortID).Scan(
 		&req.RequestID,
@@ -258,6 +293,9 @@ func (s *sqliteStorageService) GetRequestByShortID(shortID string) (*model.Reque
 		&responseJSON,
 		&req.OriginalModel,
 		&req.RoutedModel,
+		&tokensInput,
+		&tokensOutput,
+		&tokensCached,
 	)
 
 	if err == sql.ErrNoRows {
@@ -292,6 +330,16 @@ func (s *sqliteStorageService) GetRequestByShortID(shortID string) (*model.Reque
 		}
 	}
 
+	if tokensInput.Valid {
+		req.TokensInput = tokensInput.Int64
+	}
+	if tokensOutput.Valid {
+		req.TokensOutput = tokensOutput.Int64
+	}
+	if tokensCached.Valid {
+		req.TokensCached = tokensCached.Int64
+	}
+
 	return &req, req.RequestID, nil
 }
 
@@ -301,7 +349,7 @@ func (s *sqliteStorageService) GetConfig() *config.StorageConfig {
 
 func (s *sqliteStorageService) GetAllRequests(modelFilter string) ([]*model.RequestLog, error) {
 	query := `
-		SELECT id, timestamp, method, endpoint, headers, body, model, user_agent, content_type, prompt_grade, response, original_model, routed_model
+		SELECT id, timestamp, method, endpoint, headers, body, model, user_agent, content_type, prompt_grade, response, original_model, routed_model, tokens_input, tokens_output, tokens_cached
 		FROM requests
 	`
 	args := []interface{}{}
@@ -325,6 +373,7 @@ func (s *sqliteStorageService) GetAllRequests(modelFilter string) ([]*model.Requ
 		var req model.RequestLog
 		var headersJSON, bodyJSON string
 		var promptGradeJSON, responseJSON sql.NullString
+		var tokensInput, tokensOutput, tokensCached sql.NullInt64
 
 		err := rows.Scan(
 			&req.RequestID,
@@ -340,6 +389,9 @@ func (s *sqliteStorageService) GetAllRequests(modelFilter string) ([]*model.Requ
 			&responseJSON,
 			&req.OriginalModel,
 			&req.RoutedModel,
+			&tokensInput,
+			&tokensOutput,
+			&tokensCached,
 		)
 		if err != nil {
 			// Error scanning row - skip
@@ -371,6 +423,16 @@ func (s *sqliteStorageService) GetAllRequests(modelFilter string) ([]*model.Requ
 			if err := json.Unmarshal([]byte(responseJSON.String), &resp); err == nil {
 				req.Response = &resp
 			}
+		}
+
+		if tokensInput.Valid {
+			req.TokensInput = tokensInput.Int64
+		}
+		if tokensOutput.Valid {
+			req.TokensOutput = tokensOutput.Int64
+		}
+		if tokensCached.Valid {
+			req.TokensCached = tokensCached.Int64
 		}
 
 		requests = append(requests, &req)

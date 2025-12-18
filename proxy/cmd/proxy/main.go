@@ -38,12 +38,12 @@ func main() {
 	// Use legacy anthropic service for backward compatibility
 	anthropicService := service.NewAnthropicService(&cfg.Anthropic)
 
-	// Use DuckDB storage
+	// Use SQLite storage
 	storageService, err := service.NewSQLiteStorageService(&cfg.Storage)
 	if err != nil {
-		logger.Fatalf("❌ Failed to initialize DuckDB storage: %v", err)
+		logger.Fatalf("❌ Failed to initialize SQLite storage: %v", err)
 	}
-	logger.Println("🦆 DuckDB database ready")
+	logger.Println("🗄️ SQLite database ready")
 
 	h := handler.New(anthropicService, storageService, logger, modelRouter)
 
