@@ -308,7 +308,7 @@ export default function RequestDetailContent({ request, onGrade }: RequestDetail
               {expandedSections.conversation && (
                 <div className="p-6 space-y-4 max-h-[600px] overflow-y-auto">
                   {request.body.messages.map((message, index) => (
-                    <MessageBubble key={index} message={message} index={index} />
+                    <MessageBubble key={index} message={message} index={index} timestamp={request.timestamp} />
                   ))}
                 </div>
               )}
@@ -412,7 +412,7 @@ export default function RequestDetailContent({ request, onGrade }: RequestDetail
 }
 
 // Message bubble component
-function MessageBubble({ message, index }: { message: any; index: number }) {
+function MessageBubble({ message, index, timestamp }: { message: any; index: number; timestamp: string }) {
   const roleColors = {
     'user': 'bg-blue-50 border border-blue-200',
     'assistant': 'bg-gray-50 border border-gray-200',
@@ -444,6 +444,10 @@ function MessageBubble({ message, index }: { message: any; index: number }) {
           <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded-full border border-gray-200">
             #{index + 1}
           </span>
+        </div>
+        <div className="flex items-center space-x-1 text-xs text-gray-500">
+          <Clock className="w-3 h-3" />
+          <span>{new Date(timestamp).toLocaleTimeString()}</span>
         </div>
       </div>
       <div>
