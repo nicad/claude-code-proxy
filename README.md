@@ -1,6 +1,8 @@
-# Claude Code Proxy
+# Fork of Claude Code Proxy
 
 **THIS IS A FORK** with custom changes to improve message presentation and analyze token usage. You can find the original at: https://github.com/seifghazi/claude-code-proxy/blob/main/README.md
+
+# Overview
 
 ![Claude Code Proxy Demo](demo.gif)
 
