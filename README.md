@@ -1,5 +1,7 @@
 # Claude Code Proxy
 
+**THIS IS A FORK** with custom changes to improve message presentation and analyze token usage. You can find the original at: https://github.com/seifghazi/claude-code-proxy/blob/main/README.md
+
 ![Claude Code Proxy Demo](demo.gif)
 
 A transparent proxy for capturing and visualizing in-flight Claude Code requests and conversations, with optional agent routing to different LLM providers.
