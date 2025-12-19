@@ -170,6 +170,36 @@ export default function TokensIndex() {
     return { ...sum, ...pct };
   }, [usageRecords]);
 
+  const averages = useMemo(() => {
+    if (!totals || usageRecords.length === 0) return null;
+
+    const count = usageRecords.length;
+    const avg = {
+      input_tokens: Math.round(totals.input_tokens / count),
+      cache_creation_input_tokens: Math.round(totals.cache_creation_input_tokens / count),
+      cache_read_input_tokens: Math.round(totals.cache_read_input_tokens / count),
+      cache_creation_ephemeral_5m_input_tokens: Math.round(totals.cache_creation_ephemeral_5m_input_tokens / count),
+      cache_creation_ephemeral_1h_input_tokens: Math.round(totals.cache_creation_ephemeral_1h_input_tokens / count),
+      output_tokens: Math.round(totals.output_tokens / count),
+      input_cost: totals.input_cost / count,
+      cache_creation_cost: totals.cache_creation_cost / count,
+      cache_read_cost: totals.cache_read_cost / count,
+      cache_5m_cost: totals.cache_5m_cost / count,
+      cache_1h_cost: totals.cache_1h_cost / count,
+      output_cost: totals.output_cost / count,
+      total_cost: totals.total_cost / count,
+      // Percentages are the same as totals (they're ratios, not sums)
+      input_pct: totals.input_pct,
+      cache_creation_pct: totals.cache_creation_pct,
+      cache_read_pct: totals.cache_read_pct,
+      cache_5m_pct: totals.cache_5m_pct,
+      cache_1h_pct: totals.cache_1h_pct,
+      output_pct: totals.output_pct,
+    };
+
+    return avg;
+  }, [totals, usageRecords.length]);
+
   return (
     <Layout onRefresh={handleRefresh}>
       <main className="px-6 py-8 space-y-8">
@@ -433,6 +463,92 @@ export default function TokensIndex() {
                       </td>
                       <td className="px-3 py-2 font-mono text-right font-bold text-green-800">
                         {(totals.total_cost / 10000).toFixed(1)}
+                      </td>
+                    </tr>
+                  )}
+                  {/* Averages row */}
+                  {averages && (
+                    <tr className="bg-blue-50 font-semibold border-t border-blue-200">
+                      {/* Info columns */}
+                      <td colSpan={3} className="px-3 py-2 text-blue-800">
+                        AVERAGES (per request)
+                      </td>
+                      <td className="px-3 py-2 border-r border-blue-200 text-blue-800">-</td>
+                      {/* Token columns */}
+                      <td className="px-3 py-2 font-mono text-right text-gray-900">
+                        {averages.input_tokens.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {averages.cache_creation_input_tokens > 0 ? (
+                          <span className="text-blue-700">{averages.cache_creation_input_tokens.toLocaleString()}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {averages.cache_read_input_tokens > 0 ? (
+                          <span className="text-green-700">{averages.cache_read_input_tokens.toLocaleString()}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {averages.cache_creation_ephemeral_5m_input_tokens > 0 ? (
+                          <span className="text-orange-700">{averages.cache_creation_ephemeral_5m_input_tokens.toLocaleString()}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {averages.cache_creation_ephemeral_1h_input_tokens > 0 ? (
+                          <span className="text-amber-700">{averages.cache_creation_ephemeral_1h_input_tokens.toLocaleString()}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-900 border-r border-blue-200">
+                        {averages.output_tokens.toLocaleString()}
+                      </td>
+                      {/* Percentage columns - same as totals since they're ratios */}
+                      <td className="px-3 py-2 font-mono text-right text-gray-700">
+                        {averages.input_pct > 0 ? `${averages.input_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-700">
+                        {averages.cache_creation_pct > 0 ? `${averages.cache_creation_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-700">
+                        {averages.cache_read_pct > 0 ? `${averages.cache_read_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-700">
+                        {averages.cache_5m_pct > 0 ? `${averages.cache_5m_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-700">
+                        {averages.cache_1h_pct > 0 ? `${averages.cache_1h_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-700 border-r border-blue-200">
+                        {averages.output_pct > 0 ? `${averages.output_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      {/* Cost columns (in cents) */}
+                      <td className="px-3 py-2 font-mono text-right text-gray-900">
+                        {(averages.input_cost / 10000).toFixed(2)}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {averages.cache_creation_cost > 0 ? (
+                          <span className="text-blue-700">{(averages.cache_creation_cost / 10000).toFixed(2)}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {averages.cache_read_cost > 0 ? (
+                          <span className="text-green-700">{(averages.cache_read_cost / 10000).toFixed(2)}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {averages.cache_5m_cost > 0 ? (
+                          <span className="text-orange-700">{(averages.cache_5m_cost / 10000).toFixed(2)}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {averages.cache_1h_cost > 0 ? (
+                          <span className="text-amber-700">{(averages.cache_1h_cost / 10000).toFixed(2)}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-900">
+                        {(averages.output_cost / 10000).toFixed(2)}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right font-bold text-blue-800">
+                        {(averages.total_cost / 10000).toFixed(2)}
                       </td>
                     </tr>
                   )}
