@@ -1,5 +1,6 @@
 import type { MetaFunction } from "@remix-run/node";
 import { useState, useEffect, useTransition, useMemo } from "react";
+import { Link } from "@remix-run/react";
 import { Loader2 } from "lucide-react";
 
 import { Layout } from "../components/Layout";
@@ -443,8 +444,13 @@ export default function TokensIndex() {
                       <td className="px-3 py-2 text-gray-500 max-w-[150px] truncate" title={record.user_agent}>
                         {record.user_agent || '-'}
                       </td>
-                      <td className="px-3 py-2 font-mono text-gray-600">
-                        {record.id.slice(-12)}
+                      <td className="px-3 py-2 font-mono">
+                        <Link
+                          to={`/requests/${record.id.slice(-12)}`}
+                          className="text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          {record.id.slice(-12)}
+                        </Link>
                       </td>
                       <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
                         {record.timestamp ? (
