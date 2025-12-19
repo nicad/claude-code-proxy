@@ -1,7 +1,14 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, CheckCircle, AlertCircle, FileText, Database, Clock } from 'lucide-react';
-import { formatValue, formatJSON, isComplexObject, truncateText } from '../utils/formatters';
-import { CodeViewer } from './CodeViewer';
+import { ChevronDown, ChevronRight, CheckCircle, AlertCircle, FileText, Database, Clock, Info } from 'lucide-react';
+import { formatValue, formatJSON, isComplexObject, truncateText, hasSystemReminderTags } from '../utils/formatters';
+
+// Count system reminders in content
+function countSystemReminders(content: string): number {
+  if (typeof content !== 'string') return 0;
+  const rawMatches = content.match(/<system-reminder>[\s\S]*?<\/system-reminder>/g) || [];
+  const escapedMatches = content.match(/&lt;system-reminder&gt;[\s\S]*?&lt;\/system-reminder&gt;/g) || [];
+  return rawMatches.length + escapedMatches.length;
+}
 
 interface ToolResultProps {
   content: any;
@@ -11,54 +18,36 @@ interface ToolResultProps {
 
 export function ToolResult({ content, toolId, isError = false }: ToolResultProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showRawContent, setShowRawContent] = useState(false);
 
-  // Detect if this is likely code content from a Read tool
-  // Only detect as code if it has the line number pattern from cat -n output
-  const isCodeContent = (content: string): boolean => {
-    if (typeof content !== 'string') return false;
-
-    // Only consider it code if it has the line numbers pattern (e.g., "     1→" from cat -n output)
-    // This is the most reliable indicator that it's actual file content from the Read tool
-    const hasLineNumbers = /^\s*\d+→/m.test(content);
-
-    return hasLineNumbers;
-  };
-
-  // Extract code from cat -n format if present
-  const extractCodeFromCatN = (content: string): { code: string; fileName?: string } => {
-    if (typeof content !== 'string') return { code: content };
-    
-    // Check if this is cat -n output
-    if (!/^\s*\d+→/m.test(content)) {
-      return { code: content };
-    }
-    
-    // Extract the code by removing line numbers
-    const lines = content.split('\n');
-    const codeLines = lines.map(line => {
-      // Match line number pattern and extract the code part
-      const match = line.match(/^\s*\d+→(.*)$/);
-      return match ? match[1] : line;
-    });
-    
-    return { code: codeLines.join('\n') };
-  };
-
-  // Handle different content structures
-  const getDisplayContent = () => {
+  // Handle different content structures - always returns a string
+  const getDisplayContent = (): string => {
     // If content is a string, return it directly
     if (typeof content === 'string') {
       return content;
     }
 
-    // If content has a 'text' property, use that
-    if (content && typeof content === 'object' && 'text' in content) {
+    // If content has a 'text' property that's a string, use that
+    if (content && typeof content === 'object' && 'text' in content && typeof content.text === 'string') {
       return content.text;
     }
 
-    // If content has a 'content' property, use that
+    // If content has a 'content' property, handle it recursively
     if (content && typeof content === 'object' && 'content' in content) {
-      return content.content;
+      const inner = content.content;
+      if (typeof inner === 'string') {
+        return inner;
+      }
+      if (Array.isArray(inner)) {
+        const textParts = inner
+          .filter((item: any) => item && typeof item === 'object' && item.type === 'text' && item.text)
+          .map((item: any) => item.text);
+        if (textParts.length > 0) {
+          return textParts.join('\n\n');
+        }
+        return inner.map((item: any) => formatValue(item)).join('\n');
+      }
+      return formatValue(inner);
     }
 
     // If it's an array of text blocks, extract and join the text
@@ -82,14 +71,17 @@ export function ToolResult({ content, toolId, isError = false }: ToolResultProps
     return formatValue(content);
   };
 
-  const displayContent = getDisplayContent();
+  const rawDisplayContent = getDisplayContent();
+
+  // Check if content has system reminders - if so, just show a collapsible indicator
+  const containsSystemReminders = hasSystemReminderTags(rawDisplayContent);
+  const reminderCount = countSystemReminders(rawDisplayContent);
+
+  // For content without system reminders, show normally
+  const displayContent = containsSystemReminders ? '' : rawDisplayContent;
   const isLargeContent = displayContent.length > 500;
   const shouldTruncate = isLargeContent && !isExpanded;
   const truncatedContent = shouldTruncate ? truncateText(displayContent, 500) : displayContent;
-
-  // Check if this is code content
-  const isCode = isCodeContent(displayContent);
-  const { code: extractedCode } = isCode ? extractCodeFromCatN(displayContent) : { code: displayContent };
 
   const getResultConfig = () => {
     if (isError) {
@@ -162,65 +154,58 @@ export function ToolResult({ content, toolId, isError = false }: ToolResultProps
         )}
       </div>
 
-      {/* Content */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-        <div className="p-4">
-          {/* Content type indicator */}
-          <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-100">
-            <div className="flex items-center space-x-2 text-xs text-gray-600">
-              <Clock className="w-3 h-3" />
-              <span>Result received</span>
+      {/* Content - only show if there's actual content and no system reminders */}
+      {displayContent.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+          <div className="p-4">
+            {/* Content type indicator */}
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-100">
+              <div className="flex items-center space-x-2 text-xs text-gray-600">
+                <Clock className="w-3 h-3" />
+                <span>Result received</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                  Text
+                </span>
+                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                  {displayContent.length.toLocaleString()} chars
+                </span>
+              </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                {isCode ? 'Code' : 'Text'}
-              </span>
-              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                {displayContent.length.toLocaleString()} chars
-              </span>
-            </div>
-          </div>
-          
-          {/* Main content */}
-          {isCode ? (
-            <CodeViewer code={extractedCode} fileName={content.fileName} />
-          ) : (
+
+            {/* Main content */}
             <pre className="text-sm text-gray-700 whitespace-pre-wrap break-words font-sans leading-relaxed overflow-x-auto bg-gray-50 rounded-lg p-3 border border-gray-200">
               {truncatedContent}
             </pre>
-          )}
-          
-          {/* Expand/collapse controls */}
-          {shouldTruncate && !isCode && (
-            <div className="mt-3 pt-3 border-t border-gray-200">
-              <button
-                onClick={() => setIsExpanded(true)}
-                className="text-xs text-blue-600 hover:text-blue-800 underline transition-colors"
-              >
-                Show full content ({displayContent.length.toLocaleString()} characters)
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
 
-      {/* Metadata */}
-      {content && typeof content === 'object' && Object.keys(content).length > 1 && (
-        <div className="mt-3">
-          <details className="cursor-pointer group">
-            <summary className="text-xs text-gray-600 hover:text-gray-800 transition-colors flex items-center space-x-1">
-              <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform" />
-              <span>Show raw data structure</span>
-            </summary>
-            <div className="mt-2 bg-white rounded-lg border border-gray-200 p-3">
-              <pre className="text-xs overflow-x-auto font-mono text-gray-700 bg-gray-50 rounded p-2">
-                {formatJSON(content)}
-              </pre>
-            </div>
-          </details>
+            {/* Expand/collapse controls */}
+            {shouldTruncate && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <button
+                  onClick={() => setIsExpanded(true)}
+                  className="text-xs text-blue-600 hover:text-blue-800 underline transition-colors"
+                >
+                  Show full content ({displayContent.length.toLocaleString()} characters)
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
-      
+
+      {/* System Reminders - collapsible */}
+      {containsSystemReminders && (
+        <details className="bg-gray-100 border border-gray-200 rounded-lg">
+          <summary className="px-3 py-2 text-xs text-gray-500 font-mono cursor-pointer hover:bg-gray-200 transition-colors">
+            system-reminder
+          </summary>
+          <pre className="px-3 py-2 text-xs text-gray-600 font-mono whitespace-pre-wrap break-words border-t border-gray-200 max-h-96 overflow-y-auto">
+            {rawDisplayContent}
+          </pre>
+        </details>
+      )}
+
       {/* Result indicator */}
       <div className="mt-4 pt-3 border-t border-gray-200">
         <div className={`flex items-center space-x-2 text-xs ${config.titleColor}`}>

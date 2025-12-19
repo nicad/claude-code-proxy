@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { User, Bot, Settings, ChevronDown, ChevronRight, Clock, Sparkles, ArrowDown } from 'lucide-react';
 import { MessageContent } from './MessageContent';
-import { formatLargeText } from '../utils/formatters';
+import { formatLargeText, hasSystemReminderTags, stripSystemReminders } from '../utils/formatters';
 
 interface ConversationMessage {
   role: 'user' | 'assistant' | 'system';
@@ -71,41 +71,51 @@ export function MessageFlow({ message, index, isLast, totalMessages }: MessageFl
 
   // Helper function to check if content is a system reminder
   const isSystemReminder = (text: string) => {
-    return text.includes('<system-reminder>') || text.includes('</system-reminder>');
+    return hasSystemReminderTags(text);
   };
 
   // Helper function to extract non-system-reminder content for preview
   const extractNonSystemContent = (content: string) => {
-    // Split by system-reminder tags and filter out the reminder parts
-    const parts = content.split(/<system-reminder>[\s\S]*?<\/system-reminder>/g);
-    return parts.filter(part => part.trim()).join(' ').trim();
+    return stripSystemReminders(content)
+      .replace(/"\\n"/g, '') // Remove "\\n" JSON artifacts
+      .replace(/\\n/g, '\n') // Convert escaped newlines to actual newlines
+      .replace(/^["'\s\n]+/, '') // Trim leading quotes/whitespace/newlines
+      .replace(/["'\s\n]+$/, '') // Trim trailing quotes/whitespace/newlines
+      .trim();
   };
+
+  const SYSTEM_REMINDER_PLACEHOLDER = "[system-reminder]";
 
   // Determine if content should be expandable
   const getContentPreview = () => {
     if (typeof message.content === 'string') {
-      const nonSystemContent = extractNonSystemContent(message.content);
-      if (!nonSystemContent && isSystemReminder(message.content)) {
-        return "[System reminder]";
+      // If content has ANY system reminder tags, just show placeholder
+      if (isSystemReminder(message.content)) {
+        return SYSTEM_REMINDER_PLACEHOLDER;
       }
-      return nonSystemContent.length > 300 ? nonSystemContent.substring(0, 300) + '...' : nonSystemContent;
+      const cleaned = extractNonSystemContent(message.content);
+      return cleaned.length > 300 ? cleaned.substring(0, 300) + '...' : cleaned;
     }
-    
+
     if (Array.isArray(message.content)) {
+      // Check if ANY text block contains system reminders
+      const hasSystemReminder = message.content.some(c => c.type === 'text' && c.text && isSystemReminder(c.text));
+      const hasToolUse = message.content.some(c => c.type === 'tool_use');
+      const hasToolResult = message.content.some(c => c.type === 'tool_result');
+
+      if (hasSystemReminder) {
+        return SYSTEM_REMINDER_PLACEHOLDER;
+      }
+
       const allText = message.content
         .filter(c => c.type === 'text' && c.text)
-        .map(c => {
-          const nonSystemContent = extractNonSystemContent(c.text);
-          return nonSystemContent;
-        })
+        .map(c => extractNonSystemContent(c.text))
         .filter(text => text)
-        .join('\\n');
-        
+        .join('\n');
+
       if (!allText) {
-        const hasToolUse = message.content.some(c => c.type === 'tool_use');
-        const hasSystemReminder = message.content.some(c => c.type === 'text' && c.text && isSystemReminder(c.text));
         if (hasToolUse) return "[Tool call]";
-        if (hasSystemReminder) return "[System reminder]";
+        if (hasToolResult) return "[Tool result]";
         return "[Context message]";
       }
 
@@ -134,7 +144,7 @@ export function MessageFlow({ message, index, isLast, totalMessages }: MessageFl
        const allText = message.content
         .filter(c => c.type === 'text' && c.text)
         .map(c => c.text)
-        .join('\\n');
+        .join('\n');
       return allText.length > 300 || message.content.length > 1;
     }
     

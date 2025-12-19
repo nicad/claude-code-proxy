@@ -45,6 +45,7 @@ export const meta: MetaFunction = () => {
 
 interface Request {
   id: number;
+  requestId?: string;
   conversationId?: string;
   turnNumber?: number;
   isRoot?: boolean;

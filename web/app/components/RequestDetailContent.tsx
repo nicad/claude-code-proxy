@@ -26,6 +26,7 @@ import { getChatCompletionsEndpoint, getProviderName } from '../utils/models';
 
 interface Request {
   id: number;
+  requestId?: string;
   timestamp: string;
   method: string;
   endpoint: string;
@@ -145,13 +146,19 @@ export default function RequestDetailContent({ request, onGrade }: RequestDetail
         <div className="grid grid-cols-2 gap-6 text-sm">
           <div className="space-y-3">
             <div className="flex items-center space-x-3">
-              <span className="text-gray-500 font-medium min-w-[80px]">Method:</span>
+              <span className="text-gray-500 font-medium min-w-[120px]">Local DB Request ID:</span>
+              <code className="text-gray-700 bg-gray-100 px-2 py-1 rounded font-mono text-xs border border-gray-200">
+                {request.requestId || 'N/A'}
+              </code>
+            </div>
+            <div className="flex items-center space-x-3">
+              <span className="text-gray-500 font-medium min-w-[120px]">Method:</span>
               <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide ${getMethodColor(request.method)}`}>
                 {request.method}
               </span>
             </div>
             <div className="flex items-center space-x-3">
-              <span className="text-gray-500 font-medium min-w-[80px]">Endpoint:</span>
+              <span className="text-gray-500 font-medium min-w-[120px]">Endpoint:</span>
               <code className="text-blue-600 bg-blue-50 px-2 py-1 rounded font-mono text-xs border border-blue-200">
                 {getChatCompletionsEndpoint(request.routedModel, request.endpoint)}
               </code>

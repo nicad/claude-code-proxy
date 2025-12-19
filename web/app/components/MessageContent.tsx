@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Wrench, Code, FileText, Database, AlertCircl
 import { ToolResult } from './ToolResult';
 import { ToolUse } from './ToolUse';
 import { ImageContent } from './ImageContent';
-import { formatLargeText } from '../utils/formatters';
+import { formatLargeText, hasSystemReminderTags } from '../utils/formatters';
 
 interface ContentItem {
   type: string;
@@ -23,13 +23,13 @@ interface MessageContentProps {
 export function MessageContent({ content }: MessageContentProps) {
   // Handle string content
   if (typeof content === 'string') {
-    // Check if content contains system reminders
-    if (content.includes('<system-reminder>')) {
+    // Check if content contains system reminders (check both raw and escaped forms)
+    if (hasSystemReminderTags(content)) {
       return <SystemReminderContent content={content} />;
     }
-    
+
     return (
-      <div 
+      <div
         className="text-gray-700 bg-white rounded-lg p-4 border border-gray-200 shadow-sm leading-relaxed"
         dangerouslySetInnerHTML={{ __html: formatLargeText(content) }}
       />
@@ -53,16 +53,16 @@ export function MessageContent({ content }: MessageContentProps) {
   if (content && typeof content === 'object') {
     switch (content.type) {
       case 'text':
+        // Check system reminders FIRST - these should always show placeholder
+        if (content.text && hasSystemReminderTags(content.text)) {
+          return <SystemReminderContent content={content.text} />;
+        }
         // Check if this text contains tool definitions
         if (content.text && content.text.includes('<functions>')) {
           return <ToolDefinitions text={content.text} />;
         }
-        // Check if this text contains system reminders
-        if (content.text && content.text.includes('<system-reminder>')) {
-          return <SystemReminderContent content={content.text} />;
-        }
         return (
-          <div 
+          <div
             className="text-gray-700 bg-white rounded-lg p-4 border border-gray-200 shadow-sm leading-relaxed"
             dangerouslySetInnerHTML={{ __html: formatLargeText(content.text || '') }}
           />
@@ -315,90 +315,43 @@ function ToolDefinition({ functionText, index }: { functionText: string; index: 
   }
 }
 
+// Helper to check if content is meaningful (not just whitespace, quotes, or JSON fragments)
+function isMeaningfulContent(text: string): boolean {
+  if (!text) return false;
+  // Remove common JSON artifacts, stray tags, and whitespace
+  const cleaned = text
+    .replace(/<\/?system-reminder>/g, '') // Remove any stray system-reminder tags
+    .replace(/"\\n"/g, '') // Remove "\\n" JSON artifacts
+    .replace(/\\n/g, '') // Remove escaped newlines
+    .replace(/^["'\s\n]+$/, '') // Just quotes, whitespace, or newlines
+    .replace(/^\s*$/, '') // Just whitespace
+    .trim();
+  return cleaned.length > 3; // Must have more than 3 meaningful chars
+}
+
+// Clean content by removing stray system-reminder tags
+function cleanSystemReminderArtifacts(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/<\/?system-reminder>/g, '') // Remove stray opening/closing tags
+    .replace(/"\\n"/g, '') // Remove "\\n" JSON artifacts
+    .replace(/\\n/g, '\n') // Convert escaped newlines to actual newlines
+    .replace(/^["'\s\n]+/, '') // Trim leading quotes/whitespace/newlines
+    .replace(/["'\s\n]+$/, '') // Trim trailing quotes/whitespace/newlines
+    .trim();
+}
+
 // Component to handle system reminder content
 function SystemReminderContent({ content }: { content: string }) {
-  const [showReminders, setShowReminders] = useState(false);
-  
-  // Split content into regular and system reminder parts
-  const parts: Array<{ type: 'text' | 'reminder'; content: string }> = [];
-  const reminderRegex = /<system-reminder>([\s\S]*?)<\/system-reminder>/g;
-  let lastIndex = 0;
-  let match;
-  
-  while ((match = reminderRegex.exec(content)) !== null) {
-    // Add text before the reminder
-    if (match.index > lastIndex) {
-      const textPart = content.substring(lastIndex, match.index).trim();
-      if (textPart) {
-        parts.push({ type: 'text', content: textPart });
-      }
-    }
-    
-    // Add the reminder
-    parts.push({ type: 'reminder', content: match[1].trim() });
-    lastIndex = match.index + match[0].length;
-  }
-  
-  // Add any remaining text
-  if (lastIndex < content.length) {
-    const textPart = content.substring(lastIndex).trim();
-    if (textPart) {
-      parts.push({ type: 'text', content: textPart });
-    }
-  }
-  
-  const reminderCount = parts.filter(p => p.type === 'reminder').length;
-  const hasNonReminderContent = parts.some(p => p.type === 'text');
-  
   return (
-    <div className="space-y-3">
-      {/* Regular content */}
-      {parts.filter(p => p.type === 'text').map((part, index) => (
-        <div 
-          key={`text-${index}`}
-          className="text-gray-700 bg-white rounded-lg p-4 border border-gray-200 shadow-sm leading-relaxed"
-          dangerouslySetInnerHTML={{ __html: formatLargeText(part.content) }}
-        />
-      ))}
-      
-      {/* System reminder indicator/toggle */}
-      {reminderCount > 0 && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-          <button
-            onClick={() => setShowReminders(!showReminders)}
-            className="flex items-center space-x-2 text-sm text-gray-600 hover:text-gray-800 transition-colors w-full"
-          >
-            <AlertCircle className="w-4 h-4 text-gray-500" />
-            <span className="font-medium">
-              {reminderCount} system reminder{reminderCount > 1 ? 's' : ''}
-            </span>
-            {showReminders ? (
-              <ChevronDown className="w-4 h-4 ml-auto" />
-            ) : (
-              <ChevronRight className="w-4 h-4 ml-auto" />
-            )}
-          </button>
-          
-          {/* System reminder content */}
-          {showReminders && (
-            <div className="mt-3 space-y-2">
-              {parts.filter(p => p.type === 'reminder').map((part, index) => (
-                <div 
-                  key={`reminder-${index}`}
-                  className="bg-gray-100 rounded p-3 text-xs text-gray-600 font-mono border border-gray-300"
-                >
-                  <div className="flex items-start space-x-2">
-                    <AlertCircle className="w-3 h-3 text-gray-500 mt-0.5 flex-shrink-0" />
-                    <div className="overflow-x-auto whitespace-pre-wrap">{part.content}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-    </div>
+    <details className="bg-gray-100 border border-gray-200 rounded-lg">
+      <summary className="px-3 py-2 text-xs text-gray-500 font-mono cursor-pointer hover:bg-gray-200 transition-colors">
+        system-reminder
+      </summary>
+      <pre className="px-3 py-2 text-xs text-gray-600 font-mono whitespace-pre-wrap break-words border-t border-gray-200 max-h-96 overflow-y-auto">
+        {content}
+      </pre>
+    </details>
   );
 }
 

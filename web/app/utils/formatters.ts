@@ -42,11 +42,40 @@ export function formatJSON(obj: any, maxLength: number = 50000): string {
 
 /**
  * Escapes HTML characters to prevent XSS
+ * Uses string replacement instead of DOM for SSR compatibility
  */
 export function escapeHtml(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
+ * Checks if content contains system reminder tags
+ */
+export function hasSystemReminderTags(text: string): boolean {
+  if (!text || typeof text !== 'string') return false;
+  return text.includes('<system-reminder>') ||
+         text.includes('</system-reminder>') ||
+         text.includes('&lt;system-reminder&gt;') ||
+         text.includes('&lt;/system-reminder&gt;');
+}
+
+/**
+ * Strips system reminder content from text
+ */
+export function stripSystemReminders(text: string): string {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .replace(/<\/?system-reminder>/g, '')
+    .replace(/&lt;system-reminder&gt;[\s\S]*?&lt;\/system-reminder&gt;/g, '')
+    .replace(/&lt;\/?system-reminder&gt;/g, '')
+    .trim();
 }
 
 /**
