@@ -16,4 +16,5 @@ type StorageService interface {
 	GetConfig() *config.StorageConfig
 	GetAllRequests(modelFilter string) ([]*model.RequestLog, error)
 	GetUsage(page, limit int, sortBy, sortOrder string) ([]model.UsageRecord, int, error)
+	GetPricing() ([]model.PricingModel, error)
 }

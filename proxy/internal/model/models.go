@@ -201,15 +201,43 @@ type ContentBlock struct {
 }
 
 type UsageRecord struct {
-	ID                                   string `json:"id"`
-	InputTokens                          int64  `json:"input_tokens"`
-	CacheCreationInputTokens             int64  `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens                 int64  `json:"cache_read_input_tokens"`
-	CacheCreationEphemeral5mInputTokens  int64  `json:"cache_creation_ephemeral_5m_input_tokens"`
-	CacheCreationEphemeral1hInputTokens  int64  `json:"cache_creation_ephemeral_1h_input_tokens"`
-	OutputTokens                         int64  `json:"output_tokens"`
-	ServiceTier                          string `json:"service_tier"`
-	Timestamp                            string `json:"timestamp"`
-	UserAgent                            string `json:"user_agent"`
-	Model                                string `json:"model"`
+	ID                                   string  `json:"id"`
+	InputTokens                          int64   `json:"input_tokens"`
+	CacheCreationInputTokens             int64   `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens                 int64   `json:"cache_read_input_tokens"`
+	CacheCreationEphemeral5mInputTokens  int64   `json:"cache_creation_ephemeral_5m_input_tokens"`
+	CacheCreationEphemeral1hInputTokens  int64   `json:"cache_creation_ephemeral_1h_input_tokens"`
+	OutputTokens                         int64   `json:"output_tokens"`
+	ServiceTier                          string  `json:"service_tier"`
+	Timestamp                            string  `json:"timestamp"`
+	UserAgent                            string  `json:"user_agent"`
+	Model                                string  `json:"model"`
+	// Cost fields
+	InputCost         float64 `json:"input_cost"`
+	CacheCreationCost float64 `json:"cache_creation_cost"`
+	CacheReadCost     float64 `json:"cache_read_cost"`
+	Cache5mCost       float64 `json:"cache_5m_cost"`
+	Cache1hCost       float64 `json:"cache_1h_cost"`
+	OutputCost        float64 `json:"output_cost"`
+	TotalCost         float64 `json:"total_cost"`
+	// Percentage fields
+	InputPct         float64 `json:"input_pct"`
+	CacheCreationPct float64 `json:"cache_creation_pct"`
+	CacheReadPct     float64 `json:"cache_read_pct"`
+	Cache5mPct       float64 `json:"cache_5m_pct"`
+	Cache1hPct       float64 `json:"cache_1h_pct"`
+	OutputPct        float64 `json:"output_pct"`
+}
+
+type PricingModel struct {
+	Model                                string  `json:"model"`
+	DisplayName                          string  `json:"display_name"`
+	Family                               string  `json:"family"`
+	PricingDate                          string  `json:"pricing_date"`
+	PricingTier                          string  `json:"pricing_tier"`
+	InputTokens                          float64 `json:"input_tokens"`
+	OutputTokens                         float64 `json:"output_tokens"`
+	CacheReadInputTokens                 float64 `json:"cache_read_input_tokens"`
+	CacheCreationEphemeral5mInputTokens  float64 `json:"cache_creation_ephemeral_5m_input_tokens"`
+	CacheCreationEphemeral1hInputTokens  float64 `json:"cache_creation_ephemeral_1h_input_tokens"`
 }

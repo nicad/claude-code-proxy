@@ -150,12 +150,41 @@ interface UsageRecord {
   timestamp: string;
   user_agent: string;
   model: string;
+  // Cost fields
+  input_cost: number;
+  cache_creation_cost: number;
+  cache_read_cost: number;
+  cache_5m_cost: number;
+  cache_1h_cost: number;
+  output_cost: number;
+  total_cost: number;
+  // Percentage fields
+  input_pct: number;
+  cache_creation_pct: number;
+  cache_read_pct: number;
+  cache_5m_pct: number;
+  cache_1h_pct: number;
+  output_pct: number;
+}
+
+interface PricingModel {
+  model: string;
+  display_name: string;
+  family: string;
+  pricing_date: string;
+  pricing_tier: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_ephemeral_5m_input_tokens: number;
+  cache_creation_ephemeral_1h_input_tokens: number;
 }
 
 export default function Index() {
   const [requests, setRequests] = useState<Request[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
+  const [pricingModels, setPricingModels] = useState<PricingModel[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [filter, setFilter] = useState("all");
@@ -298,6 +327,20 @@ export default function Index() {
       });
     } finally {
       setIsFetching(false);
+    }
+  };
+
+  const loadPricing = async () => {
+    try {
+      const response = await fetch('/api/pricing');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      setPricingModels(data.models || []);
+    } catch (error) {
+      console.error('Failed to load pricing:', error);
+      setPricingModels([]);
     }
   };
 
@@ -541,6 +584,7 @@ export default function Index() {
       loadConversations(modelFilter);
     } else if (viewMode === 'tokens') {
       loadUsage();
+      loadPricing();
     }
   }, [viewMode, modelFilter]);
 
@@ -570,7 +614,7 @@ export default function Index() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-6 py-3">
+        <div className="px-6 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <h1 className="text-lg font-semibold text-gray-900">Claude Code Monitor</h1>
@@ -683,7 +727,7 @@ export default function Index() {
       )}
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+      <main className="px-6 py-8 space-y-8">
         {/* Stats Grid */}
         <div className="mb-6">
           <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -908,62 +952,174 @@ export default function Index() {
           </div>
         ) : (
           /* Tokens View */
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
-              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
-                Token Usage <span className="font-normal text-gray-500 normal-case">(click column to sort)</span>
-              </h2>
-            </div>
-            <div className="overflow-x-auto">
-              {isFetching || isPending ? (
-                <div className="p-8 text-center">
-                  <Loader2 className="w-6 h-6 mx-auto animate-spin text-gray-400" />
-                  <p className="mt-2 text-xs text-gray-500">Loading usage data...</p>
+          <div className="space-y-6">
+            {/* Pricing Summary */}
+            {pricingModels.length > 0 && (
+              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                  <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">Pricing Rates</h2>
                 </div>
-              ) : usageRecords.length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
-                  <h3 className="text-sm font-medium text-gray-600 mb-1">No usage data found</h3>
-                  <p className="text-xs text-gray-500">Usage data will appear here after API calls are made</p>
-                </div>
-              ) : (
-                <>
+                <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-gray-100">
                       <tr>
-                        {[
-                          { key: "user_agent", label: "User Agent" },
-                          { key: "id", label: "Request" },
-                          { key: "timestamp", label: "Timestamp" },
-                          { key: "input_tokens", label: "Input" },
-                          { key: "cache_creation_input_tokens", label: "Cache Create" },
-                          { key: "cache_read_input_tokens", label: "Cache Read" },
-                          { key: "cache_creation_ephemeral_5m_input_tokens", label: "Cache Create 5m" },
-                          { key: "cache_creation_ephemeral_1h_input_tokens", label: "Cache Create 1h" },
-                          { key: "output_tokens", label: "Output" },
-                          { key: "model", label: "Model" },
-                          { key: "service_tier", label: "Tier" },
-                        ].map(col => (
-                          <th
-                            key={col.key}
-                            onClick={() => handleUsageSort(col.key)}
-                            className="px-3 py-2 text-left font-medium text-gray-700 cursor-pointer hover:bg-gray-200 transition-colors"
-                          >
-                            <div className="flex items-center space-x-1">
-                              <span>{col.label}</span>
-                              {usageSortBy === col.key && (
-                                <span className="text-blue-600">
-                                  {usageSortOrder === "DESC" ? "↓" : "↑"}
-                                </span>
-                              )}
-                            </div>
-                          </th>
-                        ))}
+                        <th className="px-3 py-2 text-left font-medium text-gray-700">Model</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-700">Input</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-700">Output</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-700">Cache Read</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-700">Cache 5m</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-700">Cache 1h</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {pricingModels.map((pricing) => (
+                        <tr key={pricing.model} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 font-medium text-gray-900">{pricing.display_name}</td>
+                          <td className="px-3 py-2 text-right font-mono text-gray-700">${pricing.input_tokens.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-gray-700">${pricing.output_tokens.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-green-600">${pricing.cache_read_input_tokens.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-orange-600">${pricing.cache_creation_ephemeral_5m_input_tokens.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-amber-600">${pricing.cache_creation_ephemeral_1h_input_tokens.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50 border-t border-gray-200">
+                    Prices per 1M tokens
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Token Usage Table */}
+            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+              <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
+                  Token Usage <span className="font-normal text-gray-500 normal-case">(click column to sort)</span>
+                </h2>
+              </div>
+              <div className="overflow-x-auto">
+                {isFetching || isPending ? (
+                  <div className="p-8 text-center">
+                    <Loader2 className="w-6 h-6 mx-auto animate-spin text-gray-400" />
+                    <p className="mt-2 text-xs text-gray-500">Loading usage data...</p>
+                  </div>
+                ) : usageRecords.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500">
+                    <h3 className="text-sm font-medium text-gray-600 mb-1">No usage data found</h3>
+                    <p className="text-xs text-gray-500">Usage data will appear here after API calls are made</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead>
+                      {/* Group headers */}
+                      <tr className="bg-gray-200">
+                        <th colSpan={4} className="px-3 py-1 text-left text-xs font-semibold text-gray-600 border-r border-gray-300"></th>
+                        <th colSpan={6} className="px-3 py-1 text-center text-xs font-semibold text-gray-600 border-r border-gray-300">Tokens</th>
+                        <th colSpan={6} className="px-3 py-1 text-center text-xs font-semibold text-blue-700 border-r border-gray-300">% of Total Cost</th>
+                        <th colSpan={7} className="px-3 py-1 text-center text-xs font-semibold text-green-700">Cost (cents)</th>
+                      </tr>
+                      {/* Column headers */}
+                      <tr className="bg-gray-100">
+                        {/* Info columns */}
+                        <th onClick={() => handleUsageSort("user_agent")} className="px-3 py-2 text-left font-medium text-gray-700 cursor-pointer hover:bg-gray-200">
+                          <div className="flex items-center space-x-1">
+                            <span>User Agent</span>
+                            {usageSortBy === "user_agent" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        <th onClick={() => handleUsageSort("id")} className="px-3 py-2 text-left font-medium text-gray-700 cursor-pointer hover:bg-gray-200">
+                          <div className="flex items-center space-x-1">
+                            <span>Request</span>
+                            {usageSortBy === "id" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        <th onClick={() => handleUsageSort("timestamp")} className="px-3 py-2 text-left font-medium text-gray-700 cursor-pointer hover:bg-gray-200">
+                          <div className="flex items-center space-x-1">
+                            <span>Timestamp</span>
+                            {usageSortBy === "timestamp" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        <th onClick={() => handleUsageSort("model")} className="px-3 py-2 text-left font-medium text-gray-700 cursor-pointer hover:bg-gray-200 border-r border-gray-300">
+                          <div className="flex items-center space-x-1">
+                            <span>Model</span>
+                            {usageSortBy === "model" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        {/* Token columns */}
+                        <th onClick={() => handleUsageSort("input_tokens")} className="px-3 py-2 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-200">
+                          <div className="flex items-center justify-end space-x-1">
+                            <span>Input</span>
+                            {usageSortBy === "input_tokens" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        <th onClick={() => handleUsageSort("cache_creation_input_tokens")} className="px-3 py-2 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-200">
+                          <div className="flex items-center justify-end space-x-1">
+                            <span>Cache Create</span>
+                            {usageSortBy === "cache_creation_input_tokens" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        <th onClick={() => handleUsageSort("cache_read_input_tokens")} className="px-3 py-2 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-200">
+                          <div className="flex items-center justify-end space-x-1">
+                            <span>Cache Read</span>
+                            {usageSortBy === "cache_read_input_tokens" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        <th onClick={() => handleUsageSort("cache_creation_ephemeral_5m_input_tokens")} className="px-3 py-2 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-200">
+                          <div className="flex items-center justify-end space-x-1">
+                            <span>Cache 5m</span>
+                            {usageSortBy === "cache_creation_ephemeral_5m_input_tokens" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        <th onClick={() => handleUsageSort("cache_creation_ephemeral_1h_input_tokens")} className="px-3 py-2 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-200">
+                          <div className="flex items-center justify-end space-x-1">
+                            <span>Cache 1h</span>
+                            {usageSortBy === "cache_creation_ephemeral_1h_input_tokens" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        <th onClick={() => handleUsageSort("output_tokens")} className="px-3 py-2 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-200 border-r border-gray-300">
+                          <div className="flex items-center justify-end space-x-1">
+                            <span>Output</span>
+                            {usageSortBy === "output_tokens" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        {/* Percentage columns */}
+                        <th className="px-3 py-2 text-right font-medium text-blue-700">Input</th>
+                        <th className="px-3 py-2 text-right font-medium text-blue-700">Cache Create</th>
+                        <th className="px-3 py-2 text-right font-medium text-blue-700">Cache Read</th>
+                        <th className="px-3 py-2 text-right font-medium text-blue-700">Cache 5m</th>
+                        <th className="px-3 py-2 text-right font-medium text-blue-700">Cache 1h</th>
+                        <th className="px-3 py-2 text-right font-medium text-blue-700 border-r border-gray-300">Output</th>
+                        {/* Cost columns */}
+                        <th onClick={() => handleUsageSort("input_cost")} className="px-3 py-2 text-right font-medium text-green-700 cursor-pointer hover:bg-gray-200">
+                          <div className="flex items-center justify-end space-x-1">
+                            <span>Input</span>
+                            {usageSortBy === "input_cost" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium text-green-700">Cache Create</th>
+                        <th className="px-3 py-2 text-right font-medium text-green-700">Cache Read</th>
+                        <th className="px-3 py-2 text-right font-medium text-green-700">Cache 5m</th>
+                        <th className="px-3 py-2 text-right font-medium text-green-700">Cache 1h</th>
+                        <th onClick={() => handleUsageSort("output_cost")} className="px-3 py-2 text-right font-medium text-green-700 cursor-pointer hover:bg-gray-200">
+                          <div className="flex items-center justify-end space-x-1">
+                            <span>Output</span>
+                            {usageSortBy === "output_cost" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
+                        <th onClick={() => handleUsageSort("total_cost")} className="px-3 py-2 text-right font-medium text-green-700 cursor-pointer hover:bg-gray-200">
+                          <div className="flex items-center justify-end space-x-1">
+                            <span>Total</span>
+                            {usageSortBy === "total_cost" && <span className="text-blue-600">{usageSortOrder === "DESC" ? "↓" : "↑"}</span>}
+                          </div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {usageRecords.map((record) => (
                         <tr key={record.id} className="hover:bg-gray-50">
-                          <td className="px-3 py-2 text-gray-500 max-w-[200px] truncate" title={record.user_agent}>
+                          {/* Info columns */}
+                          <td className="px-3 py-2 text-gray-500 max-w-[150px] truncate" title={record.user_agent}>
                             {record.user_agent || '-'}
                           </td>
                           <td className="px-3 py-2 font-mono text-gray-600">
@@ -976,49 +1132,7 @@ export default function Index() {
                               </span>
                             ) : '-'}
                           </td>
-                          <td className="px-3 py-2 font-mono text-gray-700">
-                            {record.input_tokens.toLocaleString()}
-                          </td>
-                          <td className="px-3 py-2 font-mono">
-                            {record.cache_creation_input_tokens > 0 ? (
-                              <span className="text-blue-600">
-                                {record.cache_creation_input_tokens.toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">0</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 font-mono">
-                            {record.cache_read_input_tokens > 0 ? (
-                              <span className="text-green-600 font-medium">
-                                {record.cache_read_input_tokens.toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">0</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 font-mono">
-                            {record.cache_creation_ephemeral_5m_input_tokens > 0 ? (
-                              <span className="text-orange-600">
-                                {record.cache_creation_ephemeral_5m_input_tokens.toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">0</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 font-mono">
-                            {record.cache_creation_ephemeral_1h_input_tokens > 0 ? (
-                              <span className="text-amber-600">
-                                {record.cache_creation_ephemeral_1h_input_tokens.toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">0</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 font-mono text-gray-700">
-                            {record.output_tokens.toLocaleString()}
-                          </td>
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2 border-r border-gray-200">
                             {record.model ? (
                               <span className={`font-medium ${
                                 record.model.includes('opus') ? 'text-purple-600' :
@@ -1031,19 +1145,88 @@ export default function Index() {
                               </span>
                             ) : '-'}
                           </td>
-                          <td className="px-3 py-2">
-                            {record.service_tier && (
-                              <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">
-                                {record.service_tier}
-                              </span>
-                            )}
+                          {/* Token columns */}
+                          <td className="px-3 py-2 font-mono text-right text-gray-700">
+                            {record.input_tokens.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right">
+                            {record.cache_creation_input_tokens > 0 ? (
+                              <span className="text-blue-600">{record.cache_creation_input_tokens.toLocaleString()}</span>
+                            ) : <span className="text-gray-400">0</span>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right">
+                            {record.cache_read_input_tokens > 0 ? (
+                              <span className="text-green-600">{record.cache_read_input_tokens.toLocaleString()}</span>
+                            ) : <span className="text-gray-400">0</span>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right">
+                            {record.cache_creation_ephemeral_5m_input_tokens > 0 ? (
+                              <span className="text-orange-600">{record.cache_creation_ephemeral_5m_input_tokens.toLocaleString()}</span>
+                            ) : <span className="text-gray-400">0</span>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right">
+                            {record.cache_creation_ephemeral_1h_input_tokens > 0 ? (
+                              <span className="text-amber-600">{record.cache_creation_ephemeral_1h_input_tokens.toLocaleString()}</span>
+                            ) : <span className="text-gray-400">0</span>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right text-gray-700 border-r border-gray-200">
+                            {record.output_tokens.toLocaleString()}
+                          </td>
+                          {/* Percentage columns */}
+                          <td className="px-3 py-2 font-mono text-right text-gray-600">
+                            {record.input_pct > 0 ? `${record.input_pct.toFixed(1)}%` : '-'}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right text-gray-600">
+                            {record.cache_creation_pct > 0 ? `${record.cache_creation_pct.toFixed(1)}%` : '-'}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right text-gray-600">
+                            {record.cache_read_pct > 0 ? `${record.cache_read_pct.toFixed(1)}%` : '-'}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right text-gray-600">
+                            {record.cache_5m_pct > 0 ? `${record.cache_5m_pct.toFixed(1)}%` : '-'}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right text-gray-600">
+                            {record.cache_1h_pct > 0 ? `${record.cache_1h_pct.toFixed(1)}%` : '-'}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right text-gray-600 border-r border-gray-200">
+                            {record.output_pct > 0 ? `${record.output_pct.toFixed(1)}%` : '-'}
+                          </td>
+                          {/* Cost columns (in cents) */}
+                          <td className="px-3 py-2 font-mono text-right text-gray-700">
+                            {(record.input_cost / 10000).toFixed(1)}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right">
+                            {record.cache_creation_cost > 0 ? (
+                              <span className="text-blue-600">{(record.cache_creation_cost / 10000).toFixed(1)}</span>
+                            ) : <span className="text-gray-400">0</span>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right">
+                            {record.cache_read_cost > 0 ? (
+                              <span className="text-green-600">{(record.cache_read_cost / 10000).toFixed(1)}</span>
+                            ) : <span className="text-gray-400">0</span>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right">
+                            {record.cache_5m_cost > 0 ? (
+                              <span className="text-orange-600">{(record.cache_5m_cost / 10000).toFixed(1)}</span>
+                            ) : <span className="text-gray-400">0</span>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right">
+                            {record.cache_1h_cost > 0 ? (
+                              <span className="text-amber-600">{(record.cache_1h_cost / 10000).toFixed(1)}</span>
+                            ) : <span className="text-gray-400">0</span>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right text-gray-700">
+                            {(record.output_cost / 10000).toFixed(1)}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right font-medium text-green-700">
+                            {(record.total_cost / 10000).toFixed(1)}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </>
-              )}
+                )}
+              </div>
             </div>
           </div>
         )}

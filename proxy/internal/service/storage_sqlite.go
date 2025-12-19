@@ -72,10 +72,86 @@ func (s *sqliteStorageService) createTables() error {
 		output_tokens BIGINT,
 		service_tier TEXT
 	);
+
+	CREATE TABLE IF NOT EXISTS pricing (
+		model TEXT NOT NULL PRIMARY KEY,
+		display_name TEXT NOT NULL,
+		family TEXT NOT NULL,
+		pricing_date DATE NOT NULL DEFAULT CURRENT_DATE,
+		pricing_tier TEXT NOT NULL DEFAULT 'standard',
+		input_tokens REAL NOT NULL DEFAULT 1.00,
+		output_tokens REAL NOT NULL DEFAULT 5.00,
+		cache_read_input_tokens REAL NOT NULL DEFAULT 0.10,
+		cache_creation_ephemeral_5m_input_tokens REAL NOT NULL DEFAULT 1.25,
+		cache_creation_ephemeral_1h_input_tokens REAL NOT NULL DEFAULT 2.00
+	);
+
+	INSERT OR IGNORE INTO pricing (model, display_name, family) VALUES ('default', 'Default', 'default');
 	`
 
 	_, err := s.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Create views (SQLite doesn't support CREATE OR REPLACE VIEW)
+	views := []string{
+		`DROP VIEW IF EXISTS usage_with_pricing`,
+		`CREATE VIEW usage_with_pricing AS
+		SELECT
+			u.id,
+			COALESCE(u.input_tokens, 0) as input_tokens,
+			COALESCE(u.cache_creation_input_tokens, 0) as cache_creation_input_tokens,
+			COALESCE(u.cache_read_input_tokens, 0) as cache_read_input_tokens,
+			COALESCE(u.cache_creation_ephemeral_5m_input_tokens, 0) as cache_creation_ephemeral_5m_input_tokens,
+			COALESCE(u.cache_creation_ephemeral_1h_input_tokens, 0) as cache_creation_ephemeral_1h_input_tokens,
+			COALESCE(u.output_tokens, 0) as output_tokens,
+			COALESCE(u.service_tier, '') as service_tier,
+			COALESCE(r.timestamp, '') as timestamp,
+			COALESCE(r.user_agent, '') as user_agent,
+			COALESCE(r.model, '') as model,
+			p.pricing_date,
+			p.pricing_tier,
+			p.input_tokens as price_input_tokens,
+			p.output_tokens as price_output_tokens,
+			p.cache_read_input_tokens as price_cache_read_input_tokens,
+			p.cache_creation_ephemeral_5m_input_tokens as price_cache_creation_ephemeral_5m_input_tokens,
+			p.cache_creation_ephemeral_1h_input_tokens as price_cache_creation_ephemeral_1h_input_tokens
+		FROM usage u
+		LEFT JOIN requests r ON u.id = r.id
+		INNER JOIN pricing p ON p.model = 'default'`,
+		`DROP VIEW IF EXISTS usage_price_breakdown`,
+		`CREATE VIEW usage_price_breakdown AS
+		WITH costs AS (
+			SELECT
+				*,
+				input_tokens * price_input_tokens as input_cost,
+				cache_creation_input_tokens * price_input_tokens as cache_creation_cost,
+				cache_read_input_tokens * price_cache_read_input_tokens as cache_read_cost,
+				cache_creation_ephemeral_5m_input_tokens * price_cache_creation_ephemeral_5m_input_tokens as cache_5m_cost,
+				cache_creation_ephemeral_1h_input_tokens * price_cache_creation_ephemeral_1h_input_tokens as cache_1h_cost,
+				output_tokens * price_output_tokens as output_cost
+			FROM usage_with_pricing
+		)
+		SELECT
+			*,
+			input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost as total_cost,
+			ROUND(100.0 * input_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as input_pct,
+			ROUND(100.0 * cache_creation_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as cache_creation_pct,
+			ROUND(100.0 * cache_read_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as cache_read_pct,
+			ROUND(100.0 * cache_5m_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as cache_5m_pct,
+			ROUND(100.0 * cache_1h_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as cache_1h_pct,
+			ROUND(100.0 * output_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as output_pct
+		FROM costs`,
+	}
+
+	for _, v := range views {
+		if _, err := s.db.Exec(v); err != nil {
+			return fmt.Errorf("failed to create view: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (s *sqliteStorageService) SaveRequest(request *model.RequestLog) (string, error) {
@@ -546,28 +622,35 @@ func (s *sqliteStorageService) Close() error {
 func (s *sqliteStorageService) GetUsage(page, limit int, sortBy, sortOrder string) ([]model.UsageRecord, int, error) {
 	// Get total count
 	var total int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM usage").Scan(&total)
+	err := s.db.QueryRow("SELECT COUNT(*) FROM usage_price_breakdown").Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get total count: %w", err)
 	}
 
-	// Validate sort column (prefixed with table alias for join)
+	// Validate sort column
 	validColumns := map[string]string{
-		"id":                                       "u.id",
-		"input_tokens":                             "u.input_tokens",
-		"cache_creation_input_tokens":              "u.cache_creation_input_tokens",
-		"cache_read_input_tokens":                  "u.cache_read_input_tokens",
-		"cache_creation_ephemeral_5m_input_tokens": "u.cache_creation_ephemeral_5m_input_tokens",
-		"cache_creation_ephemeral_1h_input_tokens": "u.cache_creation_ephemeral_1h_input_tokens",
-		"output_tokens":                            "u.output_tokens",
-		"service_tier":                             "u.service_tier",
-		"timestamp":                                "r.timestamp",
-		"user_agent":                               "r.user_agent",
-		"model":                                    "r.model",
+		"id":                                       "id",
+		"input_tokens":                             "input_tokens",
+		"cache_creation_input_tokens":              "cache_creation_input_tokens",
+		"cache_read_input_tokens":                  "cache_read_input_tokens",
+		"cache_creation_ephemeral_5m_input_tokens": "cache_creation_ephemeral_5m_input_tokens",
+		"cache_creation_ephemeral_1h_input_tokens": "cache_creation_ephemeral_1h_input_tokens",
+		"output_tokens":                            "output_tokens",
+		"service_tier":                             "service_tier",
+		"timestamp":                                "timestamp",
+		"user_agent":                               "user_agent",
+		"model":                                    "model",
+		"input_cost":                               "input_cost",
+		"cache_creation_cost":                      "cache_creation_cost",
+		"cache_read_cost":                          "cache_read_cost",
+		"cache_5m_cost":                            "cache_5m_cost",
+		"cache_1h_cost":                            "cache_1h_cost",
+		"output_cost":                              "output_cost",
+		"total_cost":                               "total_cost",
 	}
 	sortColumn, ok := validColumns[sortBy]
 	if !ok {
-		sortColumn = "r.timestamp"
+		sortColumn = "timestamp"
 	}
 
 	// Validate sort order
@@ -577,26 +660,20 @@ func (s *sqliteStorageService) GetUsage(page, limit int, sortBy, sortOrder strin
 
 	// Build ORDER BY clause - add timestamp as secondary sort if not already sorting by timestamp
 	orderClause := fmt.Sprintf("%s %s", sortColumn, sortOrder)
-	if sortColumn != "r.timestamp" {
-		orderClause += ", r.timestamp DESC"
+	if sortColumn != "timestamp" {
+		orderClause += ", timestamp DESC"
 	}
 
-	// Get all results joined with requests (no pagination)
+	// Get all results from the view (no pagination)
 	query := fmt.Sprintf(`
 		SELECT
-			u.id,
-			COALESCE(u.input_tokens, 0) as input_tokens,
-			COALESCE(u.cache_creation_input_tokens, 0) as cache_creation_input_tokens,
-			COALESCE(u.cache_read_input_tokens, 0) as cache_read_input_tokens,
-			COALESCE(u.cache_creation_ephemeral_5m_input_tokens, 0) as cache_creation_ephemeral_5m_input_tokens,
-			COALESCE(u.cache_creation_ephemeral_1h_input_tokens, 0) as cache_creation_ephemeral_1h_input_tokens,
-			COALESCE(u.output_tokens, 0) as output_tokens,
-			COALESCE(u.service_tier, '') as service_tier,
-			COALESCE(r.timestamp, '') as timestamp,
-			COALESCE(r.user_agent, '') as user_agent,
-			COALESCE(r.model, '') as model
-		FROM usage u
-		LEFT JOIN requests r ON u.id = r.id
+			id, input_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+			cache_creation_ephemeral_5m_input_tokens, cache_creation_ephemeral_1h_input_tokens,
+			output_tokens, service_tier, timestamp, user_agent, model,
+			input_cost, cache_creation_cost, cache_read_cost, cache_5m_cost, cache_1h_cost, output_cost, total_cost,
+			COALESCE(input_pct, 0), COALESCE(cache_creation_pct, 0), COALESCE(cache_read_pct, 0),
+			COALESCE(cache_5m_pct, 0), COALESCE(cache_1h_pct, 0), COALESCE(output_pct, 0)
+		FROM usage_price_breakdown
 		ORDER BY %s
 	`, orderClause)
 
@@ -621,6 +698,19 @@ func (s *sqliteStorageService) GetUsage(page, limit int, sortBy, sortOrder strin
 			&rec.Timestamp,
 			&rec.UserAgent,
 			&rec.Model,
+			&rec.InputCost,
+			&rec.CacheCreationCost,
+			&rec.CacheReadCost,
+			&rec.Cache5mCost,
+			&rec.Cache1hCost,
+			&rec.OutputCost,
+			&rec.TotalCost,
+			&rec.InputPct,
+			&rec.CacheCreationPct,
+			&rec.CacheReadPct,
+			&rec.Cache5mPct,
+			&rec.Cache1hPct,
+			&rec.OutputPct,
 		)
 		if err != nil {
 			continue
@@ -629,4 +719,43 @@ func (s *sqliteStorageService) GetUsage(page, limit int, sortBy, sortOrder strin
 	}
 
 	return records, total, nil
+}
+
+func (s *sqliteStorageService) GetPricing() ([]model.PricingModel, error) {
+	query := `
+		SELECT model, display_name, family, pricing_date, pricing_tier,
+			input_tokens, output_tokens, cache_read_input_tokens,
+			cache_creation_ephemeral_5m_input_tokens, cache_creation_ephemeral_1h_input_tokens
+		FROM pricing
+		ORDER BY family, model
+	`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query pricing: %w", err)
+	}
+	defer rows.Close()
+
+	var models []model.PricingModel
+	for rows.Next() {
+		var p model.PricingModel
+		err := rows.Scan(
+			&p.Model,
+			&p.DisplayName,
+			&p.Family,
+			&p.PricingDate,
+			&p.PricingTier,
+			&p.InputTokens,
+			&p.OutputTokens,
+			&p.CacheReadInputTokens,
+			&p.CacheCreationEphemeral5mInputTokens,
+			&p.CacheCreationEphemeral1hInputTokens,
+		)
+		if err != nil {
+			continue
+		}
+		models = append(models, p)
+	}
+
+	return models, nil
 }

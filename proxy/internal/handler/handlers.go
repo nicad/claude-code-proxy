@@ -745,3 +745,19 @@ func (h *Handler) GetConversationsByProject(w http.ResponseWriter, r *http.Reque
 
 	writeJSONResponse(w, conversations)
 }
+
+func (h *Handler) GetPricing(w http.ResponseWriter, r *http.Request) {
+	pricing, err := h.storageService.GetPricing()
+	if err != nil {
+		log.Printf("Error getting pricing: %v", err)
+		http.Error(w, "Failed to get pricing", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Models []model.PricingModel `json:"models"`
+	}{
+		Models: pricing,
+	})
+}
