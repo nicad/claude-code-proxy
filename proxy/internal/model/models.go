@@ -25,22 +25,24 @@ type CriteriaScore struct {
 }
 
 type RequestLog struct {
-	RequestID     string              `json:"requestId"`
-	Timestamp     string              `json:"timestamp"`
-	Method        string              `json:"method"`
-	Endpoint      string              `json:"endpoint"`
-	Headers       map[string][]string `json:"headers"`
-	Body          interface{}         `json:"body"`
-	Model         string              `json:"model,omitempty"`
-	OriginalModel string              `json:"originalModel,omitempty"`
-	RoutedModel   string              `json:"routedModel,omitempty"`
-	UserAgent     string              `json:"userAgent"`
-	ContentType   string              `json:"contentType"`
-	PromptGrade   *PromptGrade        `json:"promptGrade,omitempty"`
-	Response      *ResponseLog        `json:"response,omitempty"`
-	TokensInput   int64               `json:"tokensInput,omitempty"`
-	TokensOutput  int64               `json:"tokensOutput,omitempty"`
-	TokensCached  int64               `json:"tokensCached,omitempty"`
+	RequestID            string              `json:"requestId"`
+	Timestamp            string              `json:"timestamp"`
+	Method               string              `json:"method"`
+	Endpoint             string              `json:"endpoint"`
+	Headers              map[string][]string `json:"headers"`
+	Body                 interface{}         `json:"body"`
+	Model                string              `json:"model,omitempty"`
+	OriginalModel        string              `json:"originalModel,omitempty"`
+	RoutedModel          string              `json:"routedModel,omitempty"`
+	UserAgent            string              `json:"userAgent"`
+	ContentType          string              `json:"contentType"`
+	PromptGrade          *PromptGrade        `json:"promptGrade,omitempty"`
+	Response             *ResponseLog        `json:"response,omitempty"`
+	TokensInput          int64               `json:"tokensInput,omitempty"`
+	TokensOutput         int64               `json:"tokensOutput,omitempty"`
+	TokensCached         int64               `json:"tokensCached,omitempty"`
+	CacheCreationTokens  int64               `json:"cacheCreationTokens,omitempty"`
+	CacheReadTokens      int64               `json:"cacheReadTokens,omitempty"`
 }
 
 type ResponseLog struct {

@@ -523,18 +523,21 @@ func (s *sqliteStorageService) GetConfig() *config.StorageConfig {
 
 func (s *sqliteStorageService) GetAllRequests(modelFilter string) ([]*model.RequestLog, error) {
 	query := `
-		SELECT id, timestamp, method, endpoint, headers, body, model, user_agent, content_type, prompt_grade, response, original_model, routed_model, tokens_input, tokens_output, tokens_cached
-		FROM requests
+		SELECT r.id, r.timestamp, r.method, r.endpoint, r.headers, r.body, r.model, r.user_agent, r.content_type, r.prompt_grade, r.response, r.original_model, r.routed_model, r.tokens_input, r.tokens_output, r.tokens_cached,
+			COALESCE(u.cache_creation_input_tokens, 0) as cache_creation_tokens,
+			COALESCE(u.cache_read_input_tokens, 0) as cache_read_tokens
+		FROM requests r
+		LEFT JOIN usage u ON r.id = u.id
 	`
 	args := []interface{}{}
 
 	if modelFilter != "" && modelFilter != "all" {
-		query += " WHERE LOWER(model) LIKE ?"
+		query += " WHERE LOWER(r.model) LIKE ?"
 		args = append(args, "%"+strings.ToLower(modelFilter)+"%")
 
 	}
 
-	query += " ORDER BY timestamp DESC"
+	query += " ORDER BY r.timestamp DESC"
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -548,6 +551,7 @@ func (s *sqliteStorageService) GetAllRequests(modelFilter string) ([]*model.Requ
 		var headersJSON, bodyJSON string
 		var promptGradeJSON, responseJSON sql.NullString
 		var tokensInput, tokensOutput, tokensCached sql.NullInt64
+		var cacheCreationTokens, cacheReadTokens int64
 
 		err := rows.Scan(
 			&req.RequestID,
@@ -566,6 +570,8 @@ func (s *sqliteStorageService) GetAllRequests(modelFilter string) ([]*model.Requ
 			&tokensInput,
 			&tokensOutput,
 			&tokensCached,
+			&cacheCreationTokens,
+			&cacheReadTokens,
 		)
 		if err != nil {
 			// Error scanning row - skip
@@ -608,6 +614,8 @@ func (s *sqliteStorageService) GetAllRequests(modelFilter string) ([]*model.Requ
 		if tokensCached.Valid {
 			req.TokensCached = tokensCached.Int64
 		}
+		req.CacheCreationTokens = cacheCreationTokens
+		req.CacheReadTokens = cacheReadTokens
 
 		requests = append(requests, &req)
 	}

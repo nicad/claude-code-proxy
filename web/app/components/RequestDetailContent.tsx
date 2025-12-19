@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { 
-  ChevronDown, 
-  Info, 
-  Settings, 
-  Cpu, 
-  MessageCircle, 
-  Brain, 
-  User, 
-  Bot, 
+import {
+  ChevronDown,
+  Info,
+  Settings,
+  Cpu,
+  MessageCircle,
+  Brain,
+  User,
+  Bot,
   Target,
   Copy,
   Check,
@@ -18,7 +18,8 @@ import {
   Calendar,
   List,
   FileText,
-  Wrench
+  Wrench,
+  Database
 } from 'lucide-react';
 import { MessageContent } from './MessageContent';
 import { formatJSON } from '../utils/formatters';
@@ -672,7 +673,8 @@ function ResponseDetails({ response }: { response: NonNullable<Request['response
 
           {/* Token Usage */}
           {response.body?.usage && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Input Tokens */}
               <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
                 <div className="flex items-center space-x-2 mb-2">
                   <Brain className="w-4 h-4 text-indigo-600" />
@@ -683,7 +685,8 @@ function ResponseDetails({ response }: { response: NonNullable<Request['response
                 </div>
                 <div className="text-xs text-indigo-700 opacity-75">Prompt</div>
               </div>
-              
+
+              {/* Output Tokens */}
               <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
                 <div className="flex items-center space-x-2 mb-2">
                   <MessageCircle className="w-4 h-4 text-emerald-600" />
@@ -694,7 +697,8 @@ function ResponseDetails({ response }: { response: NonNullable<Request['response
                 </div>
                 <div className="text-xs text-emerald-700 opacity-75">Response</div>
               </div>
-              
+
+              {/* Total Tokens */}
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                 <div className="flex items-center space-x-2 mb-2">
                   <Cpu className="w-4 h-4 text-amber-600" />
@@ -705,17 +709,60 @@ function ResponseDetails({ response }: { response: NonNullable<Request['response
                 </div>
                 <div className="text-xs text-amber-700 opacity-75">Combined</div>
               </div>
-              
-              {response.body.usage.cache_read_input_tokens && (
+
+              {/* Cache Read - Green */}
+              {response.body.usage.cache_read_input_tokens > 0 && (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                   <div className="flex items-center space-x-2 mb-2">
-                    <Bot className="w-4 h-4 text-green-600" />
-                    <span className="text-xs font-medium text-green-700">Cached Tokens</span>
+                    <Database className="w-4 h-4 text-green-600" />
+                    <span className="text-xs font-medium text-green-700">Cache Read</span>
                   </div>
                   <div className="text-lg font-bold text-green-700">
                     {response.body.usage.cache_read_input_tokens.toLocaleString()}
                   </div>
                   <div className="text-xs text-green-700 opacity-75">From Cache</div>
+                </div>
+              )}
+
+              {/* Cache Creation - Red */}
+              {response.body.usage.cache_creation_input_tokens > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Database className="w-4 h-4 text-red-600" />
+                    <span className="text-xs font-medium text-red-700">Cache Creation</span>
+                  </div>
+                  <div className="text-lg font-bold text-red-700">
+                    {response.body.usage.cache_creation_input_tokens.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-red-700 opacity-75">Written to Cache</div>
+                </div>
+              )}
+
+              {/* Cache 5m Ephemeral - Orange */}
+              {response.body.usage.cache_creation_ephemeral_5m_input_tokens > 0 && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Clock className="w-4 h-4 text-orange-600" />
+                    <span className="text-xs font-medium text-orange-700">Cache 5m</span>
+                  </div>
+                  <div className="text-lg font-bold text-orange-700">
+                    {response.body.usage.cache_creation_ephemeral_5m_input_tokens.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-orange-700 opacity-75">Ephemeral 5min</div>
+                </div>
+              )}
+
+              {/* Cache 1h Ephemeral - Yellow */}
+              {response.body.usage.cache_creation_ephemeral_1h_input_tokens > 0 && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Clock className="w-4 h-4 text-yellow-600" />
+                    <span className="text-xs font-medium text-yellow-700">Cache 1h</span>
+                  </div>
+                  <div className="text-lg font-bold text-yellow-700">
+                    {response.body.usage.cache_creation_ephemeral_1h_input_tokens.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-yellow-700 opacity-75">Ephemeral 1hour</div>
                 </div>
               )}
             </div>

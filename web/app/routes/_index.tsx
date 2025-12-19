@@ -105,6 +105,8 @@ interface Request {
     improvedPrompt: string;
     gradingTimestamp: string;
   };
+  cacheCreationTokens?: number;
+  cacheReadTokens?: number;
 }
 
 interface ConversationSummary {
@@ -828,14 +830,21 @@ export default function Index() {
                                 <span className="font-mono text-gray-600">
                                   <span className="font-medium text-gray-900">{(request.response.body.usage.output_tokens || 0).toLocaleString()}</span> out
                                 </span>
-                                {request.response.body.usage.cache_read_input_tokens ? (
-                                  <span className="font-mono bg-green-50 text-green-700 px-1.5 py-0.5 rounded">
-                                    {request.response.body.usage.cache_read_input_tokens.toLocaleString()} cached
-                                  </span>
-                                ) : null}
                               </>
                             )}
-                            
+                            {/* Cache Read - Green */}
+                            {request.cacheReadTokens && request.cacheReadTokens > 0 ? (
+                              <span className="font-mono bg-green-50 text-green-700 px-1.5 py-0.5 rounded">
+                                {request.cacheReadTokens.toLocaleString()} read
+                              </span>
+                            ) : null}
+                            {/* Cache Creation - Red */}
+                            {request.cacheCreationTokens && request.cacheCreationTokens > 0 ? (
+                              <span className="font-mono bg-red-50 text-red-700 px-1.5 py-0.5 rounded">
+                                {request.cacheCreationTokens.toLocaleString()} write
+                              </span>
+                            ) : null}
+
                             {request.response?.responseTime && (
                               <span className="font-mono text-gray-600">
                                 <span className="font-medium text-gray-900">{(request.response.responseTime / 1000).toFixed(2)}</span>s
