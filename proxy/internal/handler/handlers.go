@@ -292,6 +292,24 @@ func (h *Handler) DeleteRequests(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, response)
 }
 
+func (h *Handler) GetRequestByID(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	requestID := vars["id"]
+	if requestID == "" {
+		writeErrorResponse(w, "Request ID is required", http.StatusBadRequest)
+		return
+	}
+
+	request, _, err := h.storageService.GetRequestByShortID(requestID)
+	if err != nil {
+		log.Printf("Error getting request: %v", err)
+		writeErrorResponse(w, "Request not found", http.StatusNotFound)
+		return
+	}
+
+	writeJSONResponse(w, request)
+}
+
 func (h *Handler) NotFound(w http.ResponseWriter, r *http.Request) {
 	writeErrorResponse(w, "Not found", http.StatusNotFound)
 }
