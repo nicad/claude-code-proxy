@@ -1,6 +1,6 @@
 import type { MetaFunction, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData, Link } from "@remix-run/react";
+import { useLoaderData, Link, useRouteError } from "@remix-run/react";
 import { ArrowLeft } from "lucide-react";
 
 import { Layout } from "../components/Layout";
@@ -24,13 +24,18 @@ export const loader = async ({ params }: LoaderFunctionArgs) => {
     const response = await fetch(`http://localhost:3001/api/requests/${id}`);
 
     if (!response.ok) {
+      console.error(`Failed to fetch request ${id}: ${response.status} ${response.statusText}`);
       throw new Response("Request not found", { status: 404 });
     }
 
     const request = await response.json();
     return json({ request });
   } catch (error) {
-    throw new Response("Failed to fetch request", { status: 500 });
+    console.error(`Error fetching request ${id}:`, error);
+    if (error instanceof Response) {
+      throw error;
+    }
+    throw new Response(`Failed to fetch request: ${error}`, { status: 500 });
   }
 };
 
@@ -66,6 +71,9 @@ export default function RequestDetail() {
 }
 
 export function ErrorBoundary() {
+  const error = useRouteError();
+  const isResponseError = error instanceof Response;
+
   return (
     <Layout showActions={false}>
       <main className="px-6 py-8">
@@ -81,6 +89,9 @@ export function ErrorBoundary() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center">
           <h2 className="text-lg font-semibold text-gray-900 mb-2">Request Not Found</h2>
           <p className="text-gray-600">The request you're looking for doesn't exist or has been deleted.</p>
+          {!isResponseError && error instanceof Error && (
+            <p className="text-xs text-red-500 mt-2 font-mono">{error.message}</p>
+          )}
         </div>
       </main>
     </Layout>
