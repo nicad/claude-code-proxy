@@ -237,6 +237,44 @@ func (h *Handler) GetRequests(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+
+	sortBy := r.URL.Query().Get("sortBy")
+	if sortBy == "" {
+		sortBy = "total_tokens"
+	}
+
+	sortOrder := strings.ToUpper(r.URL.Query().Get("sortOrder"))
+	if sortOrder != "ASC" && sortOrder != "DESC" {
+		sortOrder = "DESC"
+	}
+
+	records, total, err := h.storageService.GetUsage(page, limit, sortBy, sortOrder)
+	if err != nil {
+		log.Printf("Error getting usage: %v", err)
+		http.Error(w, "Failed to get usage", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Records []model.UsageRecord `json:"records"`
+		Total   int                 `json:"total"`
+	}{
+		Records: records,
+		Total:   total,
+	})
+}
+
 func (h *Handler) DeleteRequests(w http.ResponseWriter, r *http.Request) {
 
 	clearedCount, err := h.storageService.ClearRequests()

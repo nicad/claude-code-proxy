@@ -199,3 +199,17 @@ type ContentBlock struct {
 	Input json.RawMessage `json:"input,omitempty"`
 	Text  string          `json:"text,omitempty"`
 }
+
+type UsageRecord struct {
+	ID                                   string `json:"id"`
+	InputTokens                          int64  `json:"input_tokens"`
+	CacheCreationInputTokens             int64  `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens                 int64  `json:"cache_read_input_tokens"`
+	CacheCreationEphemeral5mInputTokens  int64  `json:"cache_creation_ephemeral_5m_input_tokens"`
+	CacheCreationEphemeral1hInputTokens  int64  `json:"cache_creation_ephemeral_1h_input_tokens"`
+	OutputTokens                         int64  `json:"output_tokens"`
+	ServiceTier                          string `json:"service_tier"`
+	Timestamp                            string `json:"timestamp"`
+	UserAgent                            string `json:"user_agent"`
+	Model                                string `json:"model"`
+}

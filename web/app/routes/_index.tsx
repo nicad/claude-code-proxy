@@ -138,13 +138,28 @@ interface Conversation {
   messageCount: number;
 }
 
+interface UsageRecord {
+  id: string;
+  input_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_ephemeral_5m_input_tokens: number;
+  cache_creation_ephemeral_1h_input_tokens: number;
+  output_tokens: number;
+  service_tier: string;
+  timestamp: string;
+  user_agent: string;
+  model: string;
+}
+
 export default function Index() {
   const [requests, setRequests] = useState<Request[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [filter, setFilter] = useState("all");
-  const [viewMode, setViewMode] = useState<"requests" | "conversations">("requests");
+  const [viewMode, setViewMode] = useState<"requests" | "conversations" | "tokens">("requests");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isConversationModalOpen, setIsConversationModalOpen] = useState(false);
   const [modelFilter, setModelFilter] = useState<string>("all");
@@ -155,6 +170,9 @@ export default function Index() {
   const [totalRequestsCount, setTotalRequestsCount] = useState(0);
   const [conversationsCurrentPage, setConversationsCurrentPage] = useState(1);
   const [hasMoreConversations, setHasMoreConversations] = useState(true);
+  const [totalUsageCount, setTotalUsageCount] = useState(0);
+  const [usageSortBy, setUsageSortBy] = useState("timestamp");
+  const [usageSortOrder, setUsageSortOrder] = useState<"ASC" | "DESC">("DESC");
   const itemsPerPage = 50;
 
   const loadRequests = async (filter?: string, loadMore = false) => {
@@ -244,13 +262,50 @@ export default function Index() {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const conversation = await response.json();
       setSelectedConversation(conversation);
       setIsConversationModalOpen(true);
     } catch (error) {
       console.error('Failed to load conversation details:', error);
     }
+  };
+
+  const loadUsage = async (sortBy: string = usageSortBy, sortOrder: "ASC" | "DESC" = usageSortOrder) => {
+    setIsFetching(true);
+    try {
+      const url = new URL('/api/usage', window.location.origin);
+      url.searchParams.append("sortBy", sortBy);
+      url.searchParams.append("sortOrder", sortOrder);
+
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const records = data.records || [];
+      const total = data.total || 0;
+
+      startTransition(() => {
+        setUsageRecords(records);
+        setTotalUsageCount(total);
+      });
+    } catch (error) {
+      console.error('Failed to load usage:', error);
+      startTransition(() => {
+        setUsageRecords([]);
+      });
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const handleUsageSort = (column: string) => {
+    const newOrder = column === usageSortBy && usageSortOrder === "DESC" ? "ASC" : "DESC";
+    setUsageSortBy(column);
+    setUsageSortOrder(newOrder);
+    loadUsage(column, newOrder);
   };
 
   const clearRequests = async () => {
@@ -482,8 +537,10 @@ export default function Index() {
   useEffect(() => {
     if (viewMode === 'requests') {
       loadRequests(modelFilter);
-    } else {
+    } else if (viewMode === 'conversations') {
       loadConversations(modelFilter);
+    } else if (viewMode === 'tokens') {
+      loadUsage();
     }
   }, [viewMode, modelFilter]);
 
@@ -561,6 +618,16 @@ export default function Index() {
           >
             Conversations
           </button>
+          <button
+            onClick={() => setViewMode("tokens")}
+            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+              viewMode === "tokens"
+                ? "bg-white text-gray-900 shadow-sm"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            Tokens
+          </button>
         </div>
       </div>
 
@@ -623,10 +690,10 @@ export default function Index() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  {viewMode === "requests" ? "Total Requests" : "Total Conversations"}
+                  {viewMode === "requests" ? "Total Requests" : viewMode === "conversations" ? "Total Conversations" : "Total Usage Records"}
                 </p>
                 <p className="text-2xl font-semibold text-gray-900 mt-1">
-                  {viewMode === "requests" ? totalRequestsCount : conversations.length}
+                  {viewMode === "requests" ? totalRequestsCount : viewMode === "conversations" ? conversations.length : totalUsageCount}
                 </p>
               </div>
             </div>
@@ -757,7 +824,7 @@ export default function Index() {
               )}
             </div>
           </div>
-        ) : (
+        ) : viewMode === "conversations" ? (
           /* Conversations View */
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
@@ -835,6 +902,146 @@ export default function Index() {
                       </button>
                     </div>
                   )}
+                </>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Tokens View */
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
+                Token Usage <span className="font-normal text-gray-500 normal-case">(click column to sort)</span>
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              {isFetching || isPending ? (
+                <div className="p-8 text-center">
+                  <Loader2 className="w-6 h-6 mx-auto animate-spin text-gray-400" />
+                  <p className="mt-2 text-xs text-gray-500">Loading usage data...</p>
+                </div>
+              ) : usageRecords.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
+                  <h3 className="text-sm font-medium text-gray-600 mb-1">No usage data found</h3>
+                  <p className="text-xs text-gray-500">Usage data will appear here after API calls are made</p>
+                </div>
+              ) : (
+                <>
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        {[
+                          { key: "user_agent", label: "User Agent" },
+                          { key: "id", label: "Request" },
+                          { key: "timestamp", label: "Timestamp" },
+                          { key: "input_tokens", label: "Input" },
+                          { key: "cache_creation_input_tokens", label: "Cache Create" },
+                          { key: "cache_read_input_tokens", label: "Cache Read" },
+                          { key: "cache_creation_ephemeral_5m_input_tokens", label: "Cache Create 5m" },
+                          { key: "cache_creation_ephemeral_1h_input_tokens", label: "Cache Create 1h" },
+                          { key: "output_tokens", label: "Output" },
+                          { key: "model", label: "Model" },
+                          { key: "service_tier", label: "Tier" },
+                        ].map(col => (
+                          <th
+                            key={col.key}
+                            onClick={() => handleUsageSort(col.key)}
+                            className="px-3 py-2 text-left font-medium text-gray-700 cursor-pointer hover:bg-gray-200 transition-colors"
+                          >
+                            <div className="flex items-center space-x-1">
+                              <span>{col.label}</span>
+                              {usageSortBy === col.key && (
+                                <span className="text-blue-600">
+                                  {usageSortOrder === "DESC" ? "↓" : "↑"}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {usageRecords.map((record) => (
+                        <tr key={record.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-500 max-w-[200px] truncate" title={record.user_agent}>
+                            {record.user_agent || '-'}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-gray-600">
+                            {record.id.slice(-12)}
+                          </td>
+                          <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+                            {record.timestamp ? (
+                              <span title={record.timestamp}>
+                                {new Date(record.timestamp).toLocaleDateString()} {new Date(record.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            ) : '-'}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-gray-700">
+                            {record.input_tokens.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 font-mono">
+                            {record.cache_creation_input_tokens > 0 ? (
+                              <span className="text-blue-600">
+                                {record.cache_creation_input_tokens.toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">0</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 font-mono">
+                            {record.cache_read_input_tokens > 0 ? (
+                              <span className="text-green-600 font-medium">
+                                {record.cache_read_input_tokens.toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">0</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 font-mono">
+                            {record.cache_creation_ephemeral_5m_input_tokens > 0 ? (
+                              <span className="text-orange-600">
+                                {record.cache_creation_ephemeral_5m_input_tokens.toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">0</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 font-mono">
+                            {record.cache_creation_ephemeral_1h_input_tokens > 0 ? (
+                              <span className="text-amber-600">
+                                {record.cache_creation_ephemeral_1h_input_tokens.toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">0</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-gray-700">
+                            {record.output_tokens.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2">
+                            {record.model ? (
+                              <span className={`font-medium ${
+                                record.model.includes('opus') ? 'text-purple-600' :
+                                record.model.includes('sonnet') ? 'text-indigo-600' :
+                                record.model.includes('haiku') ? 'text-teal-600' : 'text-gray-700'
+                              }`}>
+                                {record.model.includes('opus') ? 'Opus' :
+                                 record.model.includes('sonnet') ? 'Sonnet' :
+                                 record.model.includes('haiku') ? 'Haiku' : record.model}
+                              </span>
+                            ) : '-'}
+                          </td>
+                          <td className="px-3 py-2">
+                            {record.service_tier && (
+                              <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">
+                                {record.service_tier}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </>
               )}
             </div>

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -60,6 +61,17 @@ func (s *sqliteStorageService) createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_timestamp ON requests(timestamp DESC);
 	CREATE INDEX IF NOT EXISTS idx_endpoint ON requests(endpoint);
 	CREATE INDEX IF NOT EXISTS idx_model ON requests(model);
+
+	CREATE TABLE IF NOT EXISTS usage (
+		id TEXT PRIMARY KEY,
+		input_tokens BIGINT,
+		cache_creation_input_tokens BIGINT,
+		cache_read_input_tokens BIGINT,
+		cache_creation_ephemeral_5m_input_tokens BIGINT,
+		cache_creation_ephemeral_1h_input_tokens BIGINT,
+		output_tokens BIGINT,
+		service_tier TEXT
+	);
 	`
 
 	_, err := s.db.Exec(schema)
@@ -249,6 +261,9 @@ func (s *sqliteStorageService) UpdateRequestWithResponse(request *model.RequestL
 			tokensOutput = respBody.Usage.OutputTokens
 			tokensCached = respBody.Usage.CacheReadInputTokens
 		}
+
+		// Save detailed usage to usage table
+		s.saveUsage(request.RequestID, request.Response.Body)
 	}
 
 	query := "UPDATE requests SET response = ?, tokens_input = ?, tokens_output = ?, tokens_cached = ? WHERE id = ?"
@@ -258,6 +273,89 @@ func (s *sqliteStorageService) UpdateRequestWithResponse(request *model.RequestL
 	}
 
 	return nil
+}
+
+func (s *sqliteStorageService) saveUsage(requestID string, responseBody []byte) {
+	// Known fields in usage
+	knownFields := map[string]bool{
+		"input_tokens":                true,
+		"cache_creation_input_tokens": true,
+		"cache_read_input_tokens":     true,
+		"cache_creation":              true,
+		"output_tokens":               true,
+		"service_tier":                true,
+	}
+	knownCacheCreationFields := map[string]bool{
+		"ephemeral_5m_input_tokens": true,
+		"ephemeral_1h_input_tokens": true,
+	}
+
+	// Parse usage as raw map to detect unknown fields
+	var respBody struct {
+		Usage map[string]interface{} `json:"usage"`
+	}
+	if err := json.Unmarshal(responseBody, &respBody); err != nil {
+		return
+	}
+	if respBody.Usage == nil {
+		return
+	}
+
+	// Check for unknown fields
+	for key := range respBody.Usage {
+		if !knownFields[key] {
+			log.Printf("WARNING: Unknown usage field: %s", key)
+		}
+	}
+
+	// Check cache_creation for unknown fields
+	if cacheCreation, ok := respBody.Usage["cache_creation"].(map[string]interface{}); ok {
+		for key := range cacheCreation {
+			if !knownCacheCreationFields[key] {
+				log.Printf("WARNING: Unknown usage.cache_creation field: %s", key)
+			}
+		}
+	}
+
+	// Parse with typed struct for insertion
+	var usage struct {
+		Usage struct {
+			InputTokens              int64  `json:"input_tokens"`
+			CacheCreationInputTokens int64  `json:"cache_creation_input_tokens"`
+			CacheReadInputTokens     int64  `json:"cache_read_input_tokens"`
+			OutputTokens             int64  `json:"output_tokens"`
+			ServiceTier              string `json:"service_tier"`
+			CacheCreation            struct {
+				Ephemeral5mInputTokens int64 `json:"ephemeral_5m_input_tokens"`
+				Ephemeral1hInputTokens int64 `json:"ephemeral_1h_input_tokens"`
+			} `json:"cache_creation"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(responseBody, &usage); err != nil {
+		log.Printf("WARNING: Failed to parse usage for saving: %v", err)
+		return
+	}
+
+	query := `
+		INSERT OR REPLACE INTO usage (
+			id, input_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+			cache_creation_ephemeral_5m_input_tokens, cache_creation_ephemeral_1h_input_tokens,
+			output_tokens, service_tier
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	_, err := s.db.Exec(query,
+		requestID,
+		usage.Usage.InputTokens,
+		usage.Usage.CacheCreationInputTokens,
+		usage.Usage.CacheReadInputTokens,
+		usage.Usage.CacheCreation.Ephemeral5mInputTokens,
+		usage.Usage.CacheCreation.Ephemeral1hInputTokens,
+		usage.Usage.OutputTokens,
+		usage.Usage.ServiceTier,
+	)
+	if err != nil {
+		log.Printf("WARNING: Failed to save usage: %v", err)
+	}
 }
 
 func (s *sqliteStorageService) EnsureDirectoryExists() error {
@@ -443,4 +541,92 @@ func (s *sqliteStorageService) GetAllRequests(modelFilter string) ([]*model.Requ
 
 func (s *sqliteStorageService) Close() error {
 	return s.db.Close()
+}
+
+func (s *sqliteStorageService) GetUsage(page, limit int, sortBy, sortOrder string) ([]model.UsageRecord, int, error) {
+	// Get total count
+	var total int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM usage").Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get total count: %w", err)
+	}
+
+	// Validate sort column (prefixed with table alias for join)
+	validColumns := map[string]string{
+		"id":                                       "u.id",
+		"input_tokens":                             "u.input_tokens",
+		"cache_creation_input_tokens":              "u.cache_creation_input_tokens",
+		"cache_read_input_tokens":                  "u.cache_read_input_tokens",
+		"cache_creation_ephemeral_5m_input_tokens": "u.cache_creation_ephemeral_5m_input_tokens",
+		"cache_creation_ephemeral_1h_input_tokens": "u.cache_creation_ephemeral_1h_input_tokens",
+		"output_tokens":                            "u.output_tokens",
+		"service_tier":                             "u.service_tier",
+		"timestamp":                                "r.timestamp",
+		"user_agent":                               "r.user_agent",
+		"model":                                    "r.model",
+	}
+	sortColumn, ok := validColumns[sortBy]
+	if !ok {
+		sortColumn = "r.timestamp"
+	}
+
+	// Validate sort order
+	if sortOrder != "ASC" && sortOrder != "DESC" {
+		sortOrder = "DESC"
+	}
+
+	// Build ORDER BY clause - add timestamp as secondary sort if not already sorting by timestamp
+	orderClause := fmt.Sprintf("%s %s", sortColumn, sortOrder)
+	if sortColumn != "r.timestamp" {
+		orderClause += ", r.timestamp DESC"
+	}
+
+	// Get all results joined with requests (no pagination)
+	query := fmt.Sprintf(`
+		SELECT
+			u.id,
+			COALESCE(u.input_tokens, 0) as input_tokens,
+			COALESCE(u.cache_creation_input_tokens, 0) as cache_creation_input_tokens,
+			COALESCE(u.cache_read_input_tokens, 0) as cache_read_input_tokens,
+			COALESCE(u.cache_creation_ephemeral_5m_input_tokens, 0) as cache_creation_ephemeral_5m_input_tokens,
+			COALESCE(u.cache_creation_ephemeral_1h_input_tokens, 0) as cache_creation_ephemeral_1h_input_tokens,
+			COALESCE(u.output_tokens, 0) as output_tokens,
+			COALESCE(u.service_tier, '') as service_tier,
+			COALESCE(r.timestamp, '') as timestamp,
+			COALESCE(r.user_agent, '') as user_agent,
+			COALESCE(r.model, '') as model
+		FROM usage u
+		LEFT JOIN requests r ON u.id = r.id
+		ORDER BY %s
+	`, orderClause)
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query usage: %w", err)
+	}
+	defer rows.Close()
+
+	var records []model.UsageRecord
+	for rows.Next() {
+		var rec model.UsageRecord
+		err := rows.Scan(
+			&rec.ID,
+			&rec.InputTokens,
+			&rec.CacheCreationInputTokens,
+			&rec.CacheReadInputTokens,
+			&rec.CacheCreationEphemeral5mInputTokens,
+			&rec.CacheCreationEphemeral1hInputTokens,
+			&rec.OutputTokens,
+			&rec.ServiceTier,
+			&rec.Timestamp,
+			&rec.UserAgent,
+			&rec.Model,
+		)
+		if err != nil {
+			continue
+		}
+		records = append(records, rec)
+	}
+
+	return records, total, nil
 }

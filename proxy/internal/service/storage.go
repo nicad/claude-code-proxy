@@ -15,4 +15,5 @@ type StorageService interface {
 	GetRequestByShortID(shortID string) (*model.RequestLog, string, error)
 	GetConfig() *config.StorageConfig
 	GetAllRequests(modelFilter string) ([]*model.RequestLog, error)
+	GetUsage(page, limit int, sortBy, sortOrder string) ([]model.UsageRecord, int, error)
 }
