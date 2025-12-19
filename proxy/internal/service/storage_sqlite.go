@@ -126,23 +126,42 @@ func (s *sqliteStorageService) createTables() error {
 			SELECT
 				*,
 				input_tokens * price_input_tokens as input_cost,
-				cache_creation_input_tokens * price_input_tokens as cache_creation_cost,
+				case 
+					when cache_creation_ephemeral_5m_input_tokens + cache_creation_ephemeral_1h_input_tokens > 0 then 
+						0 
+					else 
+						cache_creation_input_tokens 
+				end * price_input_tokens as cache_creation_cost,
 				cache_read_input_tokens * price_cache_read_input_tokens as cache_read_cost,
 				cache_creation_ephemeral_5m_input_tokens * price_cache_creation_ephemeral_5m_input_tokens as cache_5m_cost,
 				cache_creation_ephemeral_1h_input_tokens * price_cache_creation_ephemeral_1h_input_tokens as cache_1h_cost,
 				output_tokens * price_output_tokens as output_cost
 			FROM usage_with_pricing
+		),
+		costs_with_total AS (
+			SELECT 
+				*,
+				input_cost 
+					+ cache_read_cost 
+					+ case 
+						when cache_5m_cost + cache_1h_cost = 0 then 
+							cache_creation_cost 
+						else 
+							cache_5m_cost + cache_1h_cost 
+					end 
+					+ output_cost as total_cost
+			FROM
+				costs
 		)
 		SELECT
 			*,
-			input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost as total_cost,
-			ROUND(100.0 * input_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as input_pct,
-			ROUND(100.0 * cache_creation_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as cache_creation_pct,
-			ROUND(100.0 * cache_read_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as cache_read_pct,
-			ROUND(100.0 * cache_5m_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as cache_5m_pct,
-			ROUND(100.0 * cache_1h_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as cache_1h_pct,
-			ROUND(100.0 * output_cost / NULLIF(input_cost + cache_creation_cost + cache_read_cost + cache_5m_cost + cache_1h_cost + output_cost, 0), 1) as output_pct
-		FROM costs`,
+			ROUND(100.0 * input_cost / NULLIF(total_cost, 0), 1) as input_pct,
+			ROUND(100.0 * cache_creation_cost / NULLIF(total_cost, 0), 1) as cache_creation_pct,
+			ROUND(100.0 * cache_read_cost / NULLIF(total_cost, 0), 1) as cache_read_pct,
+			ROUND(100.0 * cache_5m_cost / NULLIF(total_cost, 0), 1) as cache_5m_pct,
+			ROUND(100.0 * cache_1h_cost / NULLIF(total_cost, 0), 1) as cache_1h_pct,
+			ROUND(100.0 * output_cost / NULLIF(total_cost, 0), 1) as output_pct
+		FROM costs_with_total`,
 	}
 
 	for _, v := range views {
