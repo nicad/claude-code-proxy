@@ -70,7 +70,10 @@ func (s *sqliteStorageService) createTables() error {
 		cache_creation_ephemeral_5m_input_tokens BIGINT,
 		cache_creation_ephemeral_1h_input_tokens BIGINT,
 		output_tokens BIGINT,
-		service_tier TEXT
+		service_tier TEXT,
+		request_bytes BIGINT,
+		request_messages BIGINT,
+		response_bytes BIGINT
 	);
 
 	CREATE TABLE IF NOT EXISTS pricing (
@@ -341,9 +344,29 @@ func (s *sqliteStorageService) UpdateRequestWithResponse(request *model.RequestL
 		return fmt.Errorf("failed to marshal response: %w", err)
 	}
 
+	// Calculate request bytes and message count
+	var requestBytes, requestMessages int64
+	if request.Body != nil {
+		if bodyBytes, err := json.Marshal(request.Body); err == nil {
+			requestBytes = int64(len(bodyBytes))
+		}
+		// Try to extract message count from request body
+		if bodyMap, ok := request.Body.(map[string]interface{}); ok {
+			if messages, ok := bodyMap["messages"].([]interface{}); ok {
+				requestMessages = int64(len(messages))
+			}
+		} else if anthReq, ok := request.Body.(*model.AnthropicRequest); ok {
+			requestMessages = int64(len(anthReq.Messages))
+		} else if anthReq, ok := request.Body.(model.AnthropicRequest); ok {
+			requestMessages = int64(len(anthReq.Messages))
+		}
+	}
+
 	// Extract token counts from response body
 	var tokensInput, tokensOutput, tokensCached int64
+	var responseBytes int64
 	if request.Response != nil && len(request.Response.Body) > 0 {
+		responseBytes = int64(len(request.Response.Body))
 		var respBody struct {
 			Usage struct {
 				InputTokens          int64 `json:"input_tokens"`
@@ -358,7 +381,7 @@ func (s *sqliteStorageService) UpdateRequestWithResponse(request *model.RequestL
 		}
 
 		// Save detailed usage to usage table
-		s.saveUsage(request.RequestID, request.Response.Body)
+		s.saveUsage(request.RequestID, request.Response.Body, requestBytes, requestMessages, responseBytes)
 	}
 
 	query := "UPDATE requests SET response = ?, tokens_input = ?, tokens_output = ?, tokens_cached = ? WHERE id = ?"
@@ -370,7 +393,7 @@ func (s *sqliteStorageService) UpdateRequestWithResponse(request *model.RequestL
 	return nil
 }
 
-func (s *sqliteStorageService) saveUsage(requestID string, responseBody []byte) {
+func (s *sqliteStorageService) saveUsage(requestID string, responseBody []byte, requestBytes, requestMessages, responseBytes int64) {
 	// Known fields in usage
 	knownFields := map[string]bool{
 		"input_tokens":                true,
@@ -435,8 +458,8 @@ func (s *sqliteStorageService) saveUsage(requestID string, responseBody []byte) 
 		INSERT OR REPLACE INTO usage (
 			id, input_tokens, cache_creation_input_tokens, cache_read_input_tokens,
 			cache_creation_ephemeral_5m_input_tokens, cache_creation_ephemeral_1h_input_tokens,
-			output_tokens, service_tier
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			output_tokens, service_tier, request_bytes, request_messages, response_bytes
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := s.db.Exec(query,
 		requestID,
@@ -447,6 +470,9 @@ func (s *sqliteStorageService) saveUsage(requestID string, responseBody []byte) 
 		usage.Usage.CacheCreation.Ephemeral1hInputTokens,
 		usage.Usage.OutputTokens,
 		usage.Usage.ServiceTier,
+		requestBytes,
+		requestMessages,
+		responseBytes,
 	)
 	if err != nil {
 		log.Printf("WARNING: Failed to save usage: %v", err)
