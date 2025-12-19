@@ -1,5 +1,5 @@
 import type { MetaFunction } from "@remix-run/node";
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useMemo } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Layout } from "../components/Layout";
@@ -121,6 +121,54 @@ export default function TokensIndex() {
     loadPricing();
   };
 
+  const totals = useMemo(() => {
+    if (usageRecords.length === 0) return null;
+
+    const sum = {
+      input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_ephemeral_5m_input_tokens: 0,
+      cache_creation_ephemeral_1h_input_tokens: 0,
+      output_tokens: 0,
+      input_cost: 0,
+      cache_creation_cost: 0,
+      cache_read_cost: 0,
+      cache_5m_cost: 0,
+      cache_1h_cost: 0,
+      output_cost: 0,
+      total_cost: 0,
+    };
+
+    for (const record of usageRecords) {
+      sum.input_tokens += record.input_tokens || 0;
+      sum.cache_creation_input_tokens += record.cache_creation_input_tokens || 0;
+      sum.cache_read_input_tokens += record.cache_read_input_tokens || 0;
+      sum.cache_creation_ephemeral_5m_input_tokens += record.cache_creation_ephemeral_5m_input_tokens || 0;
+      sum.cache_creation_ephemeral_1h_input_tokens += record.cache_creation_ephemeral_1h_input_tokens || 0;
+      sum.output_tokens += record.output_tokens || 0;
+      sum.input_cost += record.input_cost || 0;
+      sum.cache_creation_cost += record.cache_creation_cost || 0;
+      sum.cache_read_cost += record.cache_read_cost || 0;
+      sum.cache_5m_cost += record.cache_5m_cost || 0;
+      sum.cache_1h_cost += record.cache_1h_cost || 0;
+      sum.output_cost += record.output_cost || 0;
+      sum.total_cost += record.total_cost || 0;
+    }
+
+    // Compute percentages based on total cost
+    const pct = {
+      input_pct: sum.total_cost > 0 ? (sum.input_cost / sum.total_cost) * 100 : 0,
+      cache_creation_pct: sum.total_cost > 0 ? (sum.cache_creation_cost / sum.total_cost) * 100 : 0,
+      cache_read_pct: sum.total_cost > 0 ? (sum.cache_read_cost / sum.total_cost) * 100 : 0,
+      cache_5m_pct: sum.total_cost > 0 ? (sum.cache_5m_cost / sum.total_cost) * 100 : 0,
+      cache_1h_pct: sum.total_cost > 0 ? (sum.cache_1h_cost / sum.total_cost) * 100 : 0,
+      output_pct: sum.total_cost > 0 ? (sum.output_cost / sum.total_cost) * 100 : 0,
+    };
+
+    return { ...sum, ...pct };
+  }, [usageRecords]);
+
   return (
     <Layout onRefresh={handleRefresh}>
       <main className="px-6 py-8 space-y-8">
@@ -185,7 +233,7 @@ export default function TokensIndex() {
               Token Usage <span className="font-normal text-gray-500 normal-case">(click column to sort)</span>
             </h2>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[70vh]">
             {isFetching || isPending ? (
               <div className="p-8 text-center">
                 <Loader2 className="w-6 h-6 mx-auto animate-spin text-gray-400" />
@@ -198,7 +246,7 @@ export default function TokensIndex() {
               </div>
             ) : (
               <table className="w-full text-xs">
-                <thead>
+                <thead className="sticky top-0 z-20">
                   {/* Group headers */}
                   <tr className="bg-gray-200">
                     <th colSpan={4} className="px-3 py-1 text-left text-xs font-semibold text-gray-600 border-r border-gray-300"></th>
@@ -301,6 +349,92 @@ export default function TokensIndex() {
                       </div>
                     </th>
                   </tr>
+                  {/* Summary row in thead for sticky behavior */}
+                  {totals && (
+                    <tr className="bg-amber-50 font-semibold border-t-2 border-amber-300">
+                      {/* Info columns */}
+                      <td colSpan={3} className="px-3 py-2 text-amber-800">
+                        TOTALS ({usageRecords.length} records)
+                      </td>
+                      <td className="px-3 py-2 border-r border-amber-200 text-amber-800">-</td>
+                      {/* Token columns */}
+                      <td className="px-3 py-2 font-mono text-right text-gray-900">
+                        {totals.input_tokens.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {totals.cache_creation_input_tokens > 0 ? (
+                          <span className="text-blue-700">{totals.cache_creation_input_tokens.toLocaleString()}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {totals.cache_read_input_tokens > 0 ? (
+                          <span className="text-green-700">{totals.cache_read_input_tokens.toLocaleString()}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {totals.cache_creation_ephemeral_5m_input_tokens > 0 ? (
+                          <span className="text-orange-700">{totals.cache_creation_ephemeral_5m_input_tokens.toLocaleString()}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {totals.cache_creation_ephemeral_1h_input_tokens > 0 ? (
+                          <span className="text-amber-700">{totals.cache_creation_ephemeral_1h_input_tokens.toLocaleString()}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-900 border-r border-amber-200">
+                        {totals.output_tokens.toLocaleString()}
+                      </td>
+                      {/* Percentage columns */}
+                      <td className="px-3 py-2 font-mono text-right text-gray-700">
+                        {totals.input_pct > 0 ? `${totals.input_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-700">
+                        {totals.cache_creation_pct > 0 ? `${totals.cache_creation_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-700">
+                        {totals.cache_read_pct > 0 ? `${totals.cache_read_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-700">
+                        {totals.cache_5m_pct > 0 ? `${totals.cache_5m_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-700">
+                        {totals.cache_1h_pct > 0 ? `${totals.cache_1h_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-700 border-r border-amber-200">
+                        {totals.output_pct > 0 ? `${totals.output_pct.toFixed(1)}%` : '-'}
+                      </td>
+                      {/* Cost columns (in cents) */}
+                      <td className="px-3 py-2 font-mono text-right text-gray-900">
+                        {(totals.input_cost / 10000).toFixed(1)}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {totals.cache_creation_cost > 0 ? (
+                          <span className="text-blue-700">{(totals.cache_creation_cost / 10000).toFixed(1)}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {totals.cache_read_cost > 0 ? (
+                          <span className="text-green-700">{(totals.cache_read_cost / 10000).toFixed(1)}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {totals.cache_5m_cost > 0 ? (
+                          <span className="text-orange-700">{(totals.cache_5m_cost / 10000).toFixed(1)}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right">
+                        {totals.cache_1h_cost > 0 ? (
+                          <span className="text-amber-700">{(totals.cache_1h_cost / 10000).toFixed(1)}</span>
+                        ) : <span className="text-gray-400">0</span>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right text-gray-900">
+                        {(totals.output_cost / 10000).toFixed(1)}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right font-bold text-green-800">
+                        {(totals.total_cost / 10000).toFixed(1)}
+                      </td>
+                    </tr>
+                  )}
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {usageRecords.map((record) => (
