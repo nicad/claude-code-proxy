@@ -5,6 +5,14 @@ import { Loader2 } from "lucide-react";
 
 import { Layout } from "../components/Layout";
 
+interface HourlyUsage {
+  hour: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_create: number;
+  cache_read: number;
+}
+
 export const meta: MetaFunction = () => {
   return [
     { title: "Token Usage - Claude Code Monitor" },
@@ -52,9 +60,115 @@ interface PricingModel {
   cache_creation_ephemeral_1h_input_tokens: number;
 }
 
+function formatTokenCount(value: number): string {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+  return value.toString();
+}
+
+function HourlyChart({
+  data,
+  dataKey,
+  label,
+  color
+}: {
+  data: HourlyUsage[];
+  dataKey: keyof HourlyUsage;
+  label: string;
+  color: string;
+}) {
+  if (data.length === 0) return null;
+
+  const values = data.map(d => Number(d[dataKey]) || 0);
+  const maxValue = Math.max(...values, 1);
+
+  // Y-axis ticks: 0, mid, max
+  const yTicks = [
+    { value: maxValue, pos: 5 },
+    { value: Math.round(maxValue / 2), pos: 50 },
+    { value: 0, pos: 95 },
+  ];
+
+  // Find tick positions for 00:00, 06:00, 12:00, 18:00
+  const xTicks: { index: number; label: string }[] = [];
+  data.forEach((d, i) => {
+    const hourPart = d.hour.split(' ')[1] || '';
+    const datePart = d.hour.split(' ')[0] || '';
+    if (hourPart === '00:00' || hourPart === '06:00' || hourPart === '12:00' || hourPart === '18:00') {
+      const dayLabel = datePart.slice(5); // MM-DD
+      xTicks.push({ index: i, label: `${dayLabel} ${hourPart.slice(0, 2)}h` });
+    }
+  });
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">{label}</h3>
+      <div className="flex">
+        {/* Y-axis labels */}
+        <div className="w-12 flex-shrink-0 relative h-20">
+          {yTicks.map((tick) => (
+            <span
+              key={tick.value}
+              className="absolute right-1 text-[9px] text-gray-400 transform -translate-y-1/2"
+              style={{ top: `${tick.pos}%` }}
+            >
+              {formatTokenCount(tick.value)}
+            </span>
+          ))}
+        </div>
+        {/* Chart area */}
+        <div className="flex-1">
+          <div className="relative h-20">
+            <svg width="100%" height="100%" viewBox="0 0 1000 100" preserveAspectRatio="none">
+              {/* Grid lines */}
+              <line x1="0" y1="5" x2="1000" y2="5" stroke="#e5e7eb" strokeWidth="0.5" />
+              <line x1="0" y1="50" x2="1000" y2="50" stroke="#e5e7eb" strokeWidth="0.5" strokeDasharray="4" />
+              {/* Bars */}
+              {data.map((d, i) => {
+                const value = Number(d[dataKey]) || 0;
+                const height = (value / maxValue) * 90;
+                const x = (i / data.length) * 1000;
+                const w = Math.max(1, (1000 / data.length) - 0.5);
+                return (
+                  <rect
+                    key={d.hour}
+                    x={x}
+                    y={95 - height}
+                    width={w}
+                    height={height}
+                    fill={color}
+                    className="opacity-80 hover:opacity-100"
+                  >
+                    <title>{`${d.hour}: ${value.toLocaleString()} tokens`}</title>
+                  </rect>
+                );
+              })}
+            </svg>
+          </div>
+          <div className="relative h-4 mt-1">
+            {xTicks.map((tick) => {
+              const pos = (tick.index / data.length) * 100;
+              return (
+                <span
+                  key={`${tick.index}-${tick.label}`}
+                  className="absolute text-[9px] text-gray-400 transform -translate-x-1/2"
+                  style={{ left: `${pos}%` }}
+                >
+                  {tick.label}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TokensIndex() {
   const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
   const [pricingModels, setPricingModels] = useState<PricingModel[]>([]);
+  const [hourlyUsage, setHourlyUsage] = useState<HourlyUsage[]>([]);
   const [totalUsageCount, setTotalUsageCount] = useState(0);
   const [usageSortBy, setUsageSortBy] = useState("timestamp");
   const [usageSortOrder, setUsageSortOrder] = useState<"ASC" | "DESC">("DESC");
@@ -105,6 +219,20 @@ export default function TokensIndex() {
     }
   };
 
+  const loadHourlyUsage = async () => {
+    try {
+      const response = await fetch('/api/usage/hourly');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      setHourlyUsage(data.data || []);
+    } catch (error) {
+      console.error('Failed to load hourly usage:', error);
+      setHourlyUsage([]);
+    }
+  };
+
   const handleUsageSort = (column: string) => {
     const newOrder = column === usageSortBy && usageSortOrder === "DESC" ? "ASC" : "DESC";
     setUsageSortBy(column);
@@ -115,11 +243,13 @@ export default function TokensIndex() {
   useEffect(() => {
     loadUsage();
     loadPricing();
+    loadHourlyUsage();
   }, []);
 
   const handleRefresh = () => {
     loadUsage();
     loadPricing();
+    loadHourlyUsage();
   };
 
   const totals = useMemo(() => {
@@ -254,6 +384,36 @@ export default function TokensIndex() {
                 Prices per 1M tokens
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Hourly Charts */}
+        {hourlyUsage.length > 0 && (
+          <div className="space-y-3">
+            <HourlyChart
+              data={hourlyUsage}
+              dataKey="input_tokens"
+              label="Inputs (Input + Cache Create)"
+              color="#6366f1"
+            />
+            <HourlyChart
+              data={hourlyUsage}
+              dataKey="output_tokens"
+              label="Output"
+              color="#10b981"
+            />
+            <HourlyChart
+              data={hourlyUsage}
+              dataKey="cache_create"
+              label="Cache Create"
+              color="#f59e0b"
+            />
+            <HourlyChart
+              data={hourlyUsage}
+              dataKey="cache_read"
+              label="Cache Read"
+              color="#22c55e"
+            />
           </div>
         )}
 

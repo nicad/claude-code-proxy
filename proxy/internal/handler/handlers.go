@@ -314,6 +314,19 @@ func (h *Handler) NotFound(w http.ResponseWriter, r *http.Request) {
 	writeErrorResponse(w, "Not found", http.StatusNotFound)
 }
 
+func (h *Handler) GetHourlyUsage(w http.ResponseWriter, r *http.Request) {
+	hourlyUsage, err := h.storageService.GetHourlyUsage()
+	if err != nil {
+		log.Printf("Error getting hourly usage: %v", err)
+		writeErrorResponse(w, "Error getting hourly usage", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(w, map[string]interface{}{
+		"data": hourlyUsage,
+	})
+}
+
 func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Response, requestLog *model.RequestLog, startTime time.Time) {
 
 	w.Header().Set("Content-Type", "text/event-stream")

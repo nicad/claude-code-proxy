@@ -812,3 +812,37 @@ func (s *sqliteStorageService) GetPricing() ([]model.PricingModel, error) {
 
 	return models, nil
 }
+
+func (s *sqliteStorageService) GetHourlyUsage() ([]model.HourlyUsage, error) {
+	query := `
+		SELECT
+			strftime('%Y-%m-%d %H:00', r.timestamp) as hour,
+			COALESCE(SUM(u.input_tokens), 0) + COALESCE(SUM(u.cache_creation_input_tokens), 0) as input_tokens,
+			COALESCE(SUM(u.output_tokens), 0) as output_tokens,
+			COALESCE(SUM(u.cache_creation_input_tokens), 0) as cache_create,
+			COALESCE(SUM(u.cache_read_input_tokens), 0) as cache_read
+		FROM requests r
+		LEFT JOIN usage u ON r.id = u.id
+		WHERE r.timestamp IS NOT NULL
+		GROUP BY strftime('%Y-%m-%d %H:00', r.timestamp)
+		ORDER BY hour ASC
+	`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query hourly usage: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.HourlyUsage
+	for rows.Next() {
+		var h model.HourlyUsage
+		err := rows.Scan(&h.Hour, &h.InputTokens, &h.OutputTokens, &h.CacheCreate, &h.CacheRead)
+		if err != nil {
+			continue
+		}
+		results = append(results, h)
+	}
+
+	return results, nil
+}

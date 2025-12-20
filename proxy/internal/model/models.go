@@ -231,6 +231,14 @@ type UsageRecord struct {
 	OutputPct        float64 `json:"output_pct"`
 }
 
+type HourlyUsage struct {
+	Hour         string `json:"hour"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+	CacheCreate  int64  `json:"cache_create"`
+	CacheRead    int64  `json:"cache_read"`
+}
+
 type PricingModel struct {
 	Model                                string  `json:"model"`
 	DisplayName                          string  `json:"display_name"`

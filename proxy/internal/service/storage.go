@@ -17,4 +17,5 @@ type StorageService interface {
 	GetAllRequests(modelFilter string) ([]*model.RequestLog, error)
 	GetUsage(page, limit int, sortBy, sortOrder string) ([]model.UsageRecord, int, error)
 	GetPricing() ([]model.PricingModel, error)
+	GetHourlyUsage() ([]model.HourlyUsage, error)
 }
