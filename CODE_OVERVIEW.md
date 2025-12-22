@@ -134,3 +134,207 @@ This usage is then:
 3. Saved to database via `UpdateRequestWithResponse()`
 
 The usage endpoint (`/api/usage`) queries this stored data to display token costs.
+
+---
+
+## Conversation Building
+
+The proxy has two separate data sources for displaying activity:
+
+### 1. API Requests (SQLite Database)
+
+All API calls intercepted by the proxy are stored in the `requests` table. This captures the raw request/response payloads, token counts, and routing decisions. The flow is documented above in "Database Writes".
+
+### 2. Claude Code Conversations (Filesystem)
+
+The proxy reads Claude Code's local conversation files directly from the filesystem.
+
+**Location:** `~/.claude/projects/`
+
+Each project directory contains `.jsonl` files (one per session). The `ConversationService` (`proxy/internal/service/conversation.go`) handles this:
+
+1. **Discovery** (`GetConversations()`, line ~45): Walks `~/.claude/projects/`, finds all `.jsonl` files
+2. **Parsing** (`parseConversationFile()`, line ~161): Reads each JSONL line as a `ConversationMessage`:
+   ```go
+   type ConversationMessage struct {
+       ParentUUID  *string         // For conversation branching
+       IsSidechain bool
+       SessionID   string
+       Type        string          // "user" or "assistant"
+       Message     json.RawMessage // Flexible content format
+       UUID        string
+       Timestamp   string          // RFC3339
+   }
+   ```
+3. **Aggregation**: Messages are sorted by timestamp and grouped into `Conversation` objects with metadata (start/end time, message count, project name)
+
+**API Endpoint:** `GET /api/conversations` (handlers.go:663)
+- Returns conversation summaries with first user message as preview (truncated to 200 chars)
+- Sorted by last activity, paginated
+
+**Detail Endpoint:** `GET /api/conversations/{id}?project={path}` (handlers.go:719)
+- Returns full conversation with all messages
+
+### Data Flow
+
+```
+Claude Code CLI
+      ↓
+~/.claude/projects/{project}/*.jsonl  ←──── ConversationService reads
+      ↓
+/api/conversations endpoint
+      ↓
+React components (ConversationThread.tsx, MessageFlow.tsx)
+
+API Requests (via proxy)
+      ↓
+SQLite requests table  ←──── StorageService writes
+      ↓
+/api/requests endpoint
+      ↓
+React components (RequestDetailContent.tsx)
+```
+
+The web UI treats these as separate data sources - conversations show the Claude Code session history while requests show the raw API traffic.
+
+### No Mapping Between Requests and Conversations
+
+Requests are **not** correlated to conversations. The Anthropic API is stateless - each request contains the full conversation history in the `messages` array, but no session identifier.
+
+- No session ID is sent in request headers or body
+- The `RequestLog` struct has no conversation reference fields
+- The frontend has dead code referencing `request.conversationId` and `request.turnNumber` (requests._index.tsx:293-297) but these are never populated
+
+Potential correlation approaches (not implemented):
+- Match by timestamp range (request timestamp falls within conversation start/end)
+- Match by message content hashing (compare request messages to conversation messages)
+- Match by working directory (if request body contained `cwd`, compare to conversation's project path)
+
+---
+
+## Data Format Comparison: JSONL vs Database
+
+### Claude Code JSONL Files (`~/.claude/projects/*/*.jsonl`)
+
+Each line is an independent JSON object representing a single event. Message types:
+
+| Type | Description |
+|------|-------------|
+| `user` | User input message |
+| `assistant` | Claude's response |
+| `system` | System events (hooks, etc.) |
+| `summary` | Conversation summary |
+| `file-history-snapshot` | File state tracking |
+
+**User message example:**
+```json
+{
+  "parentUuid": null,
+  "isSidechain": false,
+  "userType": "external",
+  "cwd": "/path/to/project",
+  "sessionId": "ec1b7299-75f0-4031-8fa9-7edfcbdeebf5",
+  "version": "2.0.74",
+  "gitBranch": "main",
+  "type": "user",
+  "message": {
+    "role": "user",
+    "content": "How do I resume my session?"
+  },
+  "uuid": "d90580fe-1640-41b1-a259-61a694279bdd",
+  "timestamp": "2025-12-20T05:28:47.527Z",
+  "todos": []
+}
+```
+
+**Assistant message example:**
+```json
+{
+  "parentUuid": "d90580fe-1640-41b1-a259-61a694279bdd",
+  "type": "assistant",
+  "message": {
+    "model": "claude-opus-4-5-20251101",
+    "id": "msg_01H7YU3HiEp8PzctRp777w6x",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {"type": "thinking", "thinking": "...", "signature": "..."},
+      {"type": "tool_use", "id": "toolu_...", "name": "Task", "input": {...}}
+    ],
+    "stop_reason": "tool_use",
+    "usage": {
+      "input_tokens": 10,
+      "cache_creation_input_tokens": 896,
+      "cache_read_input_tokens": 18271,
+      "output_tokens": 195
+    }
+  },
+  "uuid": "ec2651ee-20a5-4236-94e8-6937f1c99ac7",
+  "timestamp": "2025-12-20T05:28:58.449Z"
+}
+```
+
+### Database Request Body (`requests.body`)
+
+The full Anthropic API request format - contains **all accumulated messages** in a single call:
+
+```json
+{
+  "model": "claude-opus-4-5-20251101",
+  "messages": [
+    {"role": "user", "content": [{"type": "text", "text": "..."}]},
+    {"role": "assistant", "content": [{"type": "text", "text": "..."}, {"type": "tool_use", ...}]},
+    {"role": "user", "content": [{"type": "tool_result", ...}]},
+    ...
+  ],
+  "max_tokens": 21333,
+  "temperature": 1,
+  "system": [...],
+  "tools": [...]
+}
+```
+
+### Database Response (`requests.response`)
+
+Wrapped Anthropic API response with proxy metadata:
+
+```json
+{
+  "statusCode": 200,
+  "headers": {...},
+  "body": {
+    "model": "claude-opus-4-5-20251101",
+    "id": "msg_01GpzNbtwfWL6VxrjzsQ95fJ",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {"type": "thinking", "thinking": "...", "signature": "..."},
+      {"type": "tool_use", "id": "toolu_...", "name": "Read", "input": {...}}
+    ],
+    "stop_reason": "tool_use",
+    "usage": {...}
+  },
+  "responseTime": 8443,
+  "isStreaming": false,
+  "completedAt": "2025-12-16T15:37:10-08:00"
+}
+```
+
+### Key Differences
+
+| Aspect | JSONL (Filesystem) | Database (requests table) |
+|--------|-------------------|---------------------------|
+| **Granularity** | One message per line | All messages accumulated per API call |
+| **Metadata** | Claude Code specific: `uuid`, `parentUuid`, `sessionId`, `cwd`, `gitBranch`, `todos` | Proxy specific: `statusCode`, `responseTime`, `isStreaming` |
+| **Message format** | `message` field contains role+content | `messages` array with full history |
+| **Context** | Individual turns | Full conversation context sent each request |
+| **Tool results** | Stored as separate `user` messages with `tool_result` | Inline in `messages` array |
+
+### Similarities
+
+- **Assistant content structure**: Both use the same Anthropic content block format:
+  - `{"type": "text", "text": "..."}`
+  - `{"type": "thinking", "thinking": "...", "signature": "..."}`
+  - `{"type": "tool_use", "id": "...", "name": "...", "input": {...}}`
+- **Usage data**: Both contain token counts in the same format (`input_tokens`, `output_tokens`, `cache_*`)
+- **Model and message IDs**: Response body `id` (e.g., `msg_01...`) and `model` are identical
