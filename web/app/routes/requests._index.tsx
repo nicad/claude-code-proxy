@@ -303,33 +303,38 @@ export default function RequestsIndex() {
                         </div>
 
                         {/* Metrics Row */}
-                        <div className="flex items-center space-x-3 text-xs">
-                          {request.response?.body?.usage && (
-                            <>
-                              <span className="font-mono text-gray-600">
-                                <span className="font-medium text-gray-900">{(request.response.body.usage.input_tokens || 0).toLocaleString()}</span> in
-                              </span>
-                              <span className="font-mono text-gray-600">
-                                <span className="font-medium text-gray-900">{(request.response.body.usage.output_tokens || 0).toLocaleString()}</span> out
-                              </span>
-                            </>
-                          )}
-                          {/* Cache Read - Green */}
-                          {request.cacheReadTokens && request.cacheReadTokens > 0 ? (
-                            <span className="font-mono bg-green-50 text-green-700 px-1.5 py-0.5 rounded">
-                              {request.cacheReadTokens.toLocaleString()} read
-                            </span>
-                          ) : null}
-                          {/* Cache Creation - Red */}
-                          {request.cacheCreationTokens && request.cacheCreationTokens > 0 ? (
-                            <span className="font-mono bg-red-50 text-red-700 px-1.5 py-0.5 rounded">
-                              {request.cacheCreationTokens.toLocaleString()} write
-                            </span>
-                          ) : null}
+                        <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs font-mono text-gray-600">
+                          {request.response?.body?.usage && (() => {
+                            const inputTokens = request.response.body.usage.input_tokens || 0;
+                            const cacheCreation = request.response.body.usage.cache_creation_input_tokens || 0;
+                            const outputTokens = request.response.body.usage.output_tokens || 0;
+                            const cacheRead = request.response.body.usage.cache_read_input_tokens || 0;
+                            const totalInput = inputTokens + cacheCreation;
+                            const cacheWritePercent = totalInput > 0 ? (cacheCreation / totalInput * 100).toFixed(0) : 0;
+                            const cacheReadPercent = (cacheRead + totalInput) > 0 ? (cacheRead / (cacheRead + totalInput) * 100).toFixed(0) : 0;
 
+                            return (
+                              <>
+                                <span>
+                                  input: <span className="font-medium text-gray-900">{totalInput.toLocaleString()}</span>
+                                  {cacheCreation > 0 && (
+                                    <span className="text-red-600"> (cache write: {cacheCreation.toLocaleString()} | {cacheWritePercent}%)</span>
+                                  )}
+                                </span>
+                                <span>
+                                  output: <span className="font-medium text-gray-900">{outputTokens.toLocaleString()}</span>
+                                </span>
+                                {cacheRead > 0 && (
+                                  <span className="text-green-600">
+                                    cache read: {cacheRead.toLocaleString()} ({cacheReadPercent}%)
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
                           {request.response?.responseTime && (
-                            <span className="font-mono text-gray-600">
-                              <span className="font-medium text-gray-900">{(request.response.responseTime / 1000).toFixed(2)}</span>s
+                            <span>
+                              in <span className="font-medium text-gray-900">{(request.response.responseTime / 1000).toFixed(2)}</span>s
                             </span>
                           )}
                         </div>
