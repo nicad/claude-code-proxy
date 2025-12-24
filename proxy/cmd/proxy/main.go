@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 
+	"github.com/seifghazi/claude-code-monitor/internal/cli"
 	"github.com/seifghazi/claude-code-monitor/internal/config"
 	"github.com/seifghazi/claude-code-monitor/internal/handler"
 	"github.com/seifghazi/claude-code-monitor/internal/middleware"
@@ -20,6 +22,58 @@ import (
 )
 
 func main() {
+	// Determine command
+	cmd := "serve"
+	args := []string{}
+
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "serve", "reindex-messages", "help", "-h", "--help":
+			cmd = os.Args[1]
+			args = os.Args[2:]
+		default:
+			// No recognized subcommand, assume serve with all args
+			args = os.Args[1:]
+		}
+	}
+
+	var err error
+	switch cmd {
+	case "serve":
+		err = runServe(args)
+	case "reindex-messages":
+		err = cli.RunReindexMessages(args)
+	case "help", "-h", "--help":
+		printUsage()
+		return
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func printUsage() {
+	fmt.Println(`proxy - Claude Code Proxy Server
+
+Usage:
+  proxy [command] [options]
+
+Commands:
+  serve             Start the proxy server (default)
+  reindex-messages  Reindex requests into the messages table
+  help              Show this help message
+
+Run 'proxy <command> --help' for more information on a command.
+
+Examples:
+  proxy                              # Start server (default)
+  proxy serve                        # Start server explicitly
+  proxy reindex-messages --db requests.db`)
+}
+
+func runServe(args []string) error {
 	logger := log.New(os.Stdout, "proxy: ", log.LstdFlags|log.Lshortfile)
 
 	cfg, err := config.Load()
@@ -118,4 +172,5 @@ func main() {
 	}
 
 	logger.Println("✅ Server exited")
+	return nil
 }

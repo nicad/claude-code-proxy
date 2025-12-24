@@ -1,4 +1,4 @@
-.PHONY: all build run clean install dev 
+.PHONY: all build run clean install dev
 
 # Default target
 all: install build
@@ -14,21 +14,21 @@ install:
 build: build-proxy build-web
 
 build-proxy:
-	@echo "🔨 Building proxy server..."
-	cd proxy && go build -o ../bin/proxy cmd/proxy/main.go
+	@echo "🔨 Building proxy..."
+	cd proxy && go build -o ../bin/proxy ./cmd/proxy
 
 build-web:
 	@echo "🔨 Building web interface..."
 	cd web && npm run build
 
 # Run in development mode
-dev:
+dev: build-proxy
 	@echo "🚀 Starting development servers..."
 	./run.sh
 
 # Run proxy only
 run-proxy:
-	cd proxy && go run cmd/proxy/main.go
+	cd proxy && go run ./cmd/proxy
 
 # Run web only
 run-web:
