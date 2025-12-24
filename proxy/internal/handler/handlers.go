@@ -237,6 +237,112 @@ func (h *Handler) GetRequests(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetRequestsSummary returns lightweight request data for fast list rendering
+func (h *Handler) GetRequestsSummary(w http.ResponseWriter, r *http.Request) {
+	modelFilter := r.URL.Query().Get("model")
+	if modelFilter == "" {
+		modelFilter = "all"
+	}
+
+	startTime := r.URL.Query().Get("start")
+	endTime := r.URL.Query().Get("end")
+
+	summaries, total, err := h.storageService.GetRequestsSummary(modelFilter, startTime, endTime)
+	if err != nil {
+		log.Printf("Error getting request summaries: %v", err)
+		http.Error(w, "Failed to get requests", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Requests []*model.RequestSummary `json:"requests"`
+		Total    int                     `json:"total"`
+	}{
+		Requests: summaries,
+		Total:    total,
+	})
+}
+
+// GetStats returns aggregated dashboard statistics
+func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
+	startTime := r.URL.Query().Get("start")
+	endTime := r.URL.Query().Get("end")
+
+	if startTime == "" || endTime == "" {
+		now := time.Now().UTC()
+		endTime = now.Format(time.RFC3339)
+		startTime = now.AddDate(0, 0, -7).Format(time.RFC3339)
+	}
+
+	stats, err := h.storageService.GetStats(startTime, endTime)
+	if err != nil {
+		log.Printf("Error getting stats: %v", err)
+		http.Error(w, "Failed to get stats", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+// GetHourlyStats returns hourly breakdown for a specific date range
+func (h *Handler) GetHourlyStats(w http.ResponseWriter, r *http.Request) {
+	startTime := r.URL.Query().Get("start")
+	endTime := r.URL.Query().Get("end")
+
+	if startTime == "" || endTime == "" {
+		http.Error(w, "start and end parameters are required", http.StatusBadRequest)
+		return
+	}
+
+	stats, err := h.storageService.GetHourlyStats(startTime, endTime)
+	if err != nil {
+		log.Printf("Error getting hourly stats: %v", err)
+		http.Error(w, "Failed to get hourly stats", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+// GetModelStats returns model breakdown for a specific date range
+func (h *Handler) GetModelStats(w http.ResponseWriter, r *http.Request) {
+	startTime := r.URL.Query().Get("start")
+	endTime := r.URL.Query().Get("end")
+
+	if startTime == "" || endTime == "" {
+		http.Error(w, "start and end parameters are required", http.StatusBadRequest)
+		return
+	}
+
+	stats, err := h.storageService.GetModelStats(startTime, endTime)
+	if err != nil {
+		log.Printf("Error getting model stats: %v", err)
+		http.Error(w, "Failed to get model stats", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+// GetLatestRequestDate returns the date of the most recent request
+func (h *Handler) GetLatestRequestDate(w http.ResponseWriter, r *http.Request) {
+	latestDate, err := h.storageService.GetLatestRequestDate()
+	if err != nil {
+		log.Printf("Error getting latest request date: %v", err)
+		http.Error(w, "Failed to get latest request date", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"latestDate": latestDate,
+	})
+}
+
 func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {

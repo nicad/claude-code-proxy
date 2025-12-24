@@ -251,3 +251,58 @@ type PricingModel struct {
 	CacheCreationEphemeral5mInputTokens  float64 `json:"cache_creation_ephemeral_5m_input_tokens"`
 	CacheCreationEphemeral1hInputTokens  float64 `json:"cache_creation_ephemeral_1h_input_tokens"`
 }
+
+// RequestSummary is a lightweight version of RequestLog for list views
+type RequestSummary struct {
+	RequestID     string          `json:"requestId"`
+	Timestamp     string          `json:"timestamp"`
+	Method        string          `json:"method"`
+	Endpoint      string          `json:"endpoint"`
+	Model         string          `json:"model,omitempty"`
+	OriginalModel string          `json:"originalModel,omitempty"`
+	RoutedModel   string          `json:"routedModel,omitempty"`
+	StatusCode    int             `json:"statusCode,omitempty"`
+	ResponseTime  int64           `json:"responseTime,omitempty"`
+	Usage         *AnthropicUsage `json:"usage,omitempty"`
+}
+
+// Dashboard stats structures
+type DashboardStats struct {
+	DailyStats []DailyTokens `json:"dailyStats"`
+}
+
+type HourlyStatsResponse struct {
+	HourlyStats     []HourlyTokens `json:"hourlyStats"`
+	TodayTokens     int64          `json:"todayTokens"`
+	TodayRequests   int            `json:"todayRequests"`
+	AvgResponseTime int64          `json:"avgResponseTime"`
+}
+
+type ModelStatsResponse struct {
+	ModelStats []ModelTokens `json:"modelStats"`
+}
+
+type DailyTokens struct {
+	Date     string                `json:"date"`
+	Tokens   int64                 `json:"tokens"`
+	Requests int                   `json:"requests"`
+	Models   map[string]ModelStats `json:"models,omitempty"`
+}
+
+type HourlyTokens struct {
+	Hour     int                   `json:"hour"`
+	Tokens   int64                 `json:"tokens"`
+	Requests int                   `json:"requests"`
+	Models   map[string]ModelStats `json:"models,omitempty"`
+}
+
+type ModelStats struct {
+	Tokens   int64 `json:"tokens"`
+	Requests int   `json:"requests"`
+}
+
+type ModelTokens struct {
+	Model    string `json:"model"`
+	Tokens   int64  `json:"tokens"`
+	Requests int    `json:"requests"`
+}

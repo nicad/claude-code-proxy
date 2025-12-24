@@ -1,6 +1,8 @@
 package service
 
 import (
+	"time"
+
 	"github.com/seifghazi/claude-code-monitor/internal/config"
 	"github.com/seifghazi/claude-code-monitor/internal/model"
 )
@@ -18,4 +20,10 @@ type StorageService interface {
 	GetUsage(page, limit int, sortBy, sortOrder string) ([]model.UsageRecord, int, error)
 	GetPricing() ([]model.PricingModel, error)
 	GetHourlyUsage() ([]model.HourlyUsage, error)
+	// New methods for week-based pagination and stats
+	GetRequestsSummary(modelFilter, startTime, endTime string) ([]*model.RequestSummary, int, error)
+	GetStats(startDate, endDate string) (*model.DashboardStats, error)
+	GetHourlyStats(startTime, endTime string) (*model.HourlyStatsResponse, error)
+	GetModelStats(startTime, endTime string) (*model.ModelStatsResponse, error)
+	GetLatestRequestDate() (*time.Time, error)
 }
