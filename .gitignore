@@ -26,10 +26,12 @@ dist/
 *.swp
 *.swo
 *~
+*.code-workspace
 
 # Claude-specific files
 .claude/
 CLAUDE.md
+CLAUDE*.md
 
 # Test coverage
 coverage/
@@ -39,7 +41,15 @@ coverage/
 # Temporary files
 tmp/
 temp/
+*.bak
 
+# Db
+*.db
+*.duckdb
+*.db-wal
+*.db.wal
+*.db-shm
+*.duckdb-wal
 
 # Config
 config.yaml

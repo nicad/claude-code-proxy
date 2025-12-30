@@ -28,7 +28,7 @@ func main() {
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "serve", "reindex-messages", "help", "-h", "--help":
+		case "serve", "reindex-messages", "find-conversations", "help", "-h", "--help":
 			cmd = os.Args[1]
 			args = os.Args[2:]
 		default:
@@ -43,6 +43,8 @@ func main() {
 		err = runServe(args)
 	case "reindex-messages":
 		err = cli.RunReindexMessages(args)
+	case "find-conversations":
+		err = cli.RunFindConversations(args)
 	case "help", "-h", "--help":
 		printUsage()
 		return
@@ -61,16 +63,18 @@ Usage:
   proxy [command] [options]
 
 Commands:
-  serve             Start the proxy server (default)
-  reindex-messages  Reindex requests into the messages table
-  help              Show this help message
+  serve              Start the proxy server (default)
+  reindex-messages   Reindex requests into the messages table
+  find-conversations Find conversation chain for a request
+  help               Show this help message
 
 Run 'proxy <command> --help' for more information on a command.
 
 Examples:
-  proxy                              # Start server (default)
-  proxy serve                        # Start server explicitly
-  proxy reindex-messages --db requests.db`)
+  proxy                                    # Start server (default)
+  proxy serve                              # Start server explicitly
+  proxy reindex-messages --db requests.db
+  proxy find-conversations --id abc123`)
 }
 
 func runServe(args []string) error {

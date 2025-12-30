@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -86,7 +90,13 @@ Options:`)
 	var totalMessages int
 	err = db.QueryRow("SELECT COUNT(*) FROM messages").Scan(&totalMessages)
 	if err == nil {
-		fmt.Printf("Total: %d content items indexed\n", totalMessages)
+		fmt.Printf("Total: %d message rows indexed\n", totalMessages)
+	}
+
+	var uniqueContent int
+	err = db.QueryRow("SELECT COUNT(*) FROM message_content").Scan(&uniqueContent)
+	if err == nil {
+		fmt.Printf("Unique message content: %d\n", uniqueContent)
 	}
 
 	return nil
@@ -139,50 +149,125 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-// CreateMessagesTable creates the messages table.
-// If forceRecreate is true, drops and recreates the table.
-// If false, only creates if it doesn't exist.
+// CreateMessagesTable creates the message_content, messages, and requests_context tables.
+// If forceRecreate is true, drops and recreates the tables.
 func CreateMessagesTable(db *sql.DB, forceRecreate bool) error {
 	if forceRecreate {
 		if _, err := db.Exec("DROP TABLE IF EXISTS messages"); err != nil {
 			return err
 		}
+		if _, err := db.Exec("DROP TABLE IF EXISTS message_content"); err != nil {
+			return err
+		}
+		if _, err := db.Exec("DROP TABLE IF EXISTS requests_context"); err != nil {
+			return err
+		}
 	}
 
 	schema := `
-	CREATE TABLE IF NOT EXISTS messages (
-		id VARCHAR NOT NULL,
-		ts TIMESTAMP NOT NULL,
-		message_position INTEGER NOT NULL,
-		message_role VARCHAR NOT NULL,
-		content_position INTEGER NOT NULL,
-		content_type VARCHAR NOT NULL,
-		content_json VARCHAR NOT NULL,
-		PRIMARY KEY(id, message_position, content_position)
+	CREATE TABLE IF NOT EXISTS message_content (
+		id           INTEGER PRIMARY KEY,
+		message_hash TEXT NOT NULL UNIQUE,
+		role         TEXT NOT NULL,
+		signature    TEXT NOT NULL,
+		content      TEXT NOT NULL,
+		created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_by   TEXT NOT NULL
 	);
-	CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
-	CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(message_role);
-	CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(content_type);
+	-- CREATE INDEX IF NOT EXISTS idx_message_content_hash ON message_content(message_hash);
+
+	CREATE TABLE IF NOT EXISTS messages (
+		id               VARCHAR NOT NULL,
+		message_position INTEGER NOT NULL,
+		timestamp        TIMESTAMP NOT NULL,
+		message_hash     TEXT NOT NULL,
+		message_id       INTEGER NOT NULL,
+		kind             INTEGER NOT NULL,
+		PRIMARY KEY(id, message_position)
+	);
+	CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_messages_message_id ON messages(message_id);
+
+	-- TODO: move some of it into the requests table ?
+	CREATE TABLE IF NOT EXISTS requests_context (
+		id                VARCHAR NOT NULL PRIMARY KEY,
+		timestamp         TIMESTAMP NOT NULL,
+		last_message_id   INTEGER NOT NULL,
+		context           TEXT NOT NULL,
+		new_context       TEXT NOT NULL,
+		context_msg_count INTEGER NOT NULL,
+		status_code       INTEGER,
+		streaming         INTEGER,
+		stop_reason       TEXT,
+		response_id       TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_requests_context_ts ON requests_context(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_requests_context_last_msg ON requests_context(last_message_id);
+	CREATE INDEX IF NOT EXISTS idx_requests_context_context ON requests_context(context);
+	CREATE INDEX IF NOT EXISTS idx_requests_context_new_context ON requests_context(new_context);
 	`
 
 	_, err := db.Exec(schema)
 	return err
 }
 
+// sha256Hash computes SHA256 hash of data and returns hex string
+func sha256Hash(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
+
 // InsertMessageRows extracts messages from a request's body and inserts them into the messages table.
 // Handles both array content (multiple content blocks) and string content (simple text).
 func InsertMessageRows(db *sql.DB, requestID string) error {
 	var body, timestamp string
-	err := db.QueryRow("SELECT body, timestamp FROM requests WHERE id = ?", requestID).Scan(&body, &timestamp)
+	var responseJSON sql.NullString
+	err := db.QueryRow("SELECT body, timestamp, response FROM requests WHERE id = ?", requestID).Scan(&body, &timestamp, &responseJSON)
 	if err != nil {
 		return fmt.Errorf("failed to fetch request: %w", err)
 	}
 
+	// Extract fields from response
+	var statusCode *int
+	var streaming *int
+	var stopReason *string
+	var responseID *string
+	if responseJSON.Valid {
+		var resp struct {
+			StatusCode  int             `json:"statusCode"`
+			IsStreaming bool            `json:"isStreaming"`
+			Body        json.RawMessage `json:"body"`
+		}
+		if err := json.Unmarshal([]byte(responseJSON.String), &resp); err == nil {
+			if resp.StatusCode != 0 {
+				statusCode = &resp.StatusCode
+			}
+			streamVal := 0
+			if resp.IsStreaming {
+				streamVal = 1
+			}
+			streaming = &streamVal
+
+			// Extract stop_reason and id from body
+			if len(resp.Body) > 0 {
+				var body struct {
+					StopReason string `json:"stop_reason"`
+					ID         string `json:"id"`
+				}
+				if err := json.Unmarshal(resp.Body, &body); err == nil {
+					if body.StopReason != "" {
+						stopReason = &body.StopReason
+					}
+					if body.ID != "" {
+						responseID = &body.ID
+					}
+				}
+			}
+		}
+	}
+
 	var request struct {
-		Messages []struct {
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-		} `json:"messages"`
+		Messages []json.RawMessage `json:"messages"`
 	}
 
 	if err := json.Unmarshal([]byte(body), &request); err != nil {
@@ -199,54 +284,117 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`
-		INSERT INTO messages (id, ts, message_position, message_role, content_position, content_type, content_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+	// Prepare statements
+	lookupStmt, err := tx.Prepare("SELECT id FROM message_content WHERE message_hash = ?")
+	if err != nil {
+		return err
+	}
+	defer lookupStmt.Close()
+
+	insertContentStmt, err := tx.Prepare(`
+		INSERT INTO message_content (message_hash, role, signature, content, created_by)
+		VALUES (?, ?, ?, ?, ?)
+		RETURNING id
 	`)
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer insertContentStmt.Close()
 
-	for msgPos, msg := range request.Messages {
-		if len(msg.Content) == 0 {
-			continue
+	insertMsgStmt, err := tx.Prepare(`
+		INSERT INTO messages (id, message_position, timestamp, message_hash, message_id, kind)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer insertMsgStmt.Close()
+
+	var contextIDs []string
+	var lastMessageID int64
+	numMessages := len(request.Messages)
+
+	for msgPos, msgRaw := range request.Messages {
+		// Parse message to get role and content
+		var msg struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(msgRaw, &msg); err != nil {
+			return fmt.Errorf("failed to parse message %d: %w", msgPos, err)
 		}
 
-		// Try to parse content as array first
-		var contentArray []json.RawMessage
-		if err := json.Unmarshal(msg.Content, &contentArray); err == nil {
-			// Content is an array of content blocks
-			for contentPos, contentItem := range contentArray {
-				var block struct {
-					Type string `json:"type"`
-				}
-				json.Unmarshal(contentItem, &block)
+		// Compute hash of full message
+		messageHash := sha256Hash(msgRaw)
 
-				_, err := stmt.Exec(requestID, timestamp, msgPos, msg.Role, contentPos, block.Type, string(contentItem))
-				if err != nil {
-					return fmt.Errorf("failed to insert message: %w", err)
-				}
-			}
-		} else {
-			// Content is a plain string
-			var contentStr string
-			if err := json.Unmarshal(msg.Content, &contentStr); err != nil {
-				return fmt.Errorf("failed to parse content as string: %w", err)
-			}
-
-			// Create a synthetic content block
-			contentJSON, _ := json.Marshal(map[string]string{
-				"type": "text",
-				"text": contentStr,
-			})
-
-			_, err := stmt.Exec(requestID, timestamp, msgPos, msg.Role, 0, "text", string(contentJSON))
+		// Try to find existing message_content
+		var messageID int64
+		err := lookupStmt.QueryRow(messageHash).Scan(&messageID)
+		if err == sql.ErrNoRows {
+			// Need to insert new content
+			signature := computeSignature(msg.Content)
+			err = insertContentStmt.QueryRow(messageHash, msg.Role, signature, string(msgRaw), requestID).Scan(&messageID)
 			if err != nil {
-				return fmt.Errorf("failed to insert message: %w", err)
+				return fmt.Errorf("failed to insert message_content: %w", err)
 			}
+		} else if err != nil {
+			return fmt.Errorf("failed to lookup message_content: %w", err)
 		}
+
+		// Insert into messages (kind: 0=context, 1=last message)
+		kind := 0
+		if msgPos == numMessages-1 {
+			kind = 1
+		}
+		_, err = insertMsgStmt.Exec(requestID, msgPos, timestamp, messageHash, messageID, kind)
+		if err != nil {
+			return fmt.Errorf("failed to insert message: %w", err)
+		}
+
+		// Track for requests_context
+		lastMessageID = messageID
+		contextIDs = append(contextIDs, strconv.FormatInt(messageID, 10))
+	}
+
+	// Insert into requests_context (context excludes last message, new_context includes it)
+	context := ""
+	contextMsgCount := 0
+	if len(contextIDs) > 1 {
+		context = strings.Join(contextIDs[:len(contextIDs)-1], ",")
+		contextMsgCount = len(contextIDs) - 1
+	}
+	newContext := strings.Join(contextIDs, ",")
+
+	_, err = tx.Exec(`
+		INSERT INTO requests_context (id, timestamp, last_message_id, context, new_context, context_msg_count, status_code, streaming, stop_reason, response_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, requestID, timestamp, lastMessageID, context, newContext, contextMsgCount, statusCode, streaming, stopReason, responseID)
+	if err != nil {
+		return fmt.Errorf("failed to insert requests_context: %w", err)
 	}
 
 	return tx.Commit()
+}
+
+// computeSignature extracts content types and joins them with ","
+func computeSignature(content json.RawMessage) string {
+	// Try to parse as array first
+	var contentArray []struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(content, &contentArray); err == nil {
+		types := make([]string, len(contentArray))
+		for i, c := range contentArray {
+			types[i] = c.Type
+		}
+		return strings.Join(types, ",")
+	}
+
+	// If it's a string, signature is just "text"
+	var contentStr string
+	if err := json.Unmarshal(content, &contentStr); err == nil {
+		return "text"
+	}
+
+	return ""
 }
