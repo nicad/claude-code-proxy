@@ -84,20 +84,8 @@ Options:`)
 			}
 		}
 
-		// Truncate from start if needed
-		contextDisplay := r.Context
-		if len(contextDisplay) > 40 {
-			contextDisplay = "..." + contextDisplay[len(contextDisplay)-37:]
-		}
-
-		// Size = number of commas + 1 (or 0 if empty)
-		size := 0
-		if r.Context != "" {
-			size = strings.Count(r.Context, ",") + 1
-		}
-
 		fmt.Printf("  %-26s %-18s %-40s %6d %-12d %-10s %12d %12d\n",
-			r.Timestamp, r.ID, contextDisplay, size, r.LastMessageID, streamStr, r.TotalTokens, r.CacheReads)
+			r.Timestamp, r.ID, r.ContextDisplay, r.ContextSize, r.LastMessageID, streamStr, r.TotalTokens, r.CacheReads)
 	}
 
 	fmt.Printf("\nFound %d requests matching prefix\n", len(results))
@@ -128,13 +116,15 @@ func computeContextPrefix(context string) string {
 }
 
 type ConversationResult struct {
-	ID            string
-	Timestamp     string
-	Context       string
-	LastMessageID int64
-	Streaming     *int
-	TotalTokens   int64
-	CacheReads    int64
+	ID             string
+	Timestamp      string
+	Context        string
+	ContextDisplay string
+	ContextSize    int
+	LastMessageID  int64
+	Streaming      *int
+	TotalTokens    int64
+	CacheReads     int64
 }
 
 func FindConversationsByPrefix(db *sql.DB, prefix string) ([]ConversationResult, error) {
@@ -143,11 +133,13 @@ func FindConversationsByPrefix(db *sql.DB, prefix string) ([]ConversationResult,
 		rc.id,
 		rc.timestamp,
 		rc.context,
+		rc.context_display,
+		rc.context_size,
 		rc.last_message_id,
 		rc.streaming,
 		COALESCE(u.input_tokens, 0) + COALESCE(u.output_tokens, 0) + COALESCE(u.cache_creation_input_tokens, 0) as total_tokens,
 		COALESCE(u.cache_read_input_tokens, 0) as cache_reads
-	FROM requests_context rc
+	FROM requests_context_summary rc
 	LEFT JOIN usage u ON rc.id = u.id
 	WHERE rc.context LIKE ? OR rc.context = ?
 	ORDER BY rc.timestamp ASC
@@ -163,7 +155,7 @@ func FindConversationsByPrefix(db *sql.DB, prefix string) ([]ConversationResult,
 	var results []ConversationResult
 	for rows.Next() {
 		var r ConversationResult
-		if err := rows.Scan(&r.ID, &r.Timestamp, &r.Context, &r.LastMessageID, &r.Streaming, &r.TotalTokens, &r.CacheReads); err != nil {
+		if err := rows.Scan(&r.ID, &r.Timestamp, &r.Context, &r.ContextDisplay, &r.ContextSize, &r.LastMessageID, &r.Streaming, &r.TotalTokens, &r.CacheReads); err != nil {
 			return nil, err
 		}
 		results = append(results, r)

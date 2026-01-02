@@ -153,6 +153,9 @@ func truncate(s string, maxLen int) string {
 // If forceRecreate is true, drops and recreates the tables.
 func CreateMessagesTable(db *sql.DB, forceRecreate bool) error {
 	if forceRecreate {
+		if _, err := db.Exec("DROP VIEW IF EXISTS requests_context_summary"); err != nil {
+			return err
+		}
 		if _, err := db.Exec("DROP TABLE IF EXISTS messages"); err != nil {
 			return err
 		}
@@ -205,6 +208,46 @@ func CreateMessagesTable(db *sql.DB, forceRecreate bool) error {
 	CREATE INDEX IF NOT EXISTS idx_requests_context_last_msg ON requests_context(last_message_id);
 	CREATE INDEX IF NOT EXISTS idx_requests_context_context ON requests_context(context);
 	CREATE INDEX IF NOT EXISTS idx_requests_context_new_context ON requests_context(new_context);
+
+	-- View with formatted context_display (first 2, [N], last 4)
+	DROP VIEW IF EXISTS requests_context_summary;
+	CREATE VIEW requests_context_summary AS
+	WITH parsed AS (
+		SELECT
+			*,
+			CASE WHEN context = '' OR context IS NULL THEN '[]'
+				 ELSE '["' || replace(context, ',', '","') || '"]'
+			END as json_ctx,
+			CASE WHEN context = '' OR context IS NULL THEN 0
+				 ELSE length(context) - length(replace(context, ',', '')) + 1
+			END as elem_count
+		FROM requests_context
+	)
+	SELECT
+		id,
+		timestamp,
+		last_message_id,
+		context,
+		CASE
+			WHEN elem_count = 0 THEN ''
+			WHEN elem_count <= 6 THEN context
+			ELSE
+				json_extract(json_ctx, '$[0]') || ',' ||
+				json_extract(json_ctx, '$[1]') || ',..[' ||
+				(elem_count - 6) || ']..,' ||
+				json_extract(json_ctx, '$[' || (elem_count - 4) || ']') || ',' ||
+				json_extract(json_ctx, '$[' || (elem_count - 3) || ']') || ',' ||
+				json_extract(json_ctx, '$[' || (elem_count - 2) || ']') || ',' ||
+				json_extract(json_ctx, '$[' || (elem_count - 1) || ']')
+		END as context_display,
+		elem_count as context_size,
+		new_context,
+		context_msg_count,
+		status_code,
+		streaming,
+		stop_reason,
+		response_id
+	FROM parsed;
 	`
 
 	_, err := db.Exec(schema)
