@@ -23,8 +23,10 @@ interface Turn {
   lastMessageId: number;
   requestRole: string | null;
   requestSignature: string | null;
+  requestBytes: number;
   responseRole: string | null;
   responseSignature: string | null;
+  responseBytes: number;
   streaming: boolean | null;
   stopReason: string | null;
   totalTokens: number;
@@ -81,6 +83,7 @@ function formatTokenCount(value: number): string {
 }
 
 function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '-';
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
@@ -706,8 +709,8 @@ export default function TurnsIndex() {
                 <thead className="sticky top-0 z-10 bg-gray-100">
                   <tr className="border-b border-gray-300">
                     <th colSpan={6} className="px-3 py-1"></th>
-                    <th colSpan={2} className="px-3 py-1 text-center text-xs font-semibold text-amber-700 bg-amber-50 border-l border-gray-300">Request</th>
-                    <th colSpan={2} className="px-3 py-1 text-center text-xs font-semibold text-green-700 bg-green-50 border-l border-gray-300">Response</th>
+                    <th colSpan={3} className="px-3 py-1 text-center text-xs font-semibold text-amber-700 bg-amber-50 border-l border-gray-300">Request</th>
+                    <th colSpan={3} className="px-3 py-1 text-center text-xs font-semibold text-green-700 bg-green-50 border-l border-gray-300">Response</th>
                     <th colSpan={3} className="px-3 py-1 border-l border-gray-300"></th>
                   </tr>
                   <tr>
@@ -719,8 +722,10 @@ export default function TurnsIndex() {
                     <SortHeader column="lastMessageId" label="Last Id" align="right" />
                     <th className="px-3 py-2 text-left font-medium text-gray-700 border-l border-gray-300">Role</th>
                     <th className="px-3 py-2 text-left font-medium text-gray-700">Signature</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-700">Size</th>
                     <SortHeader column="responseRole" label="Role" />
                     <th className="px-3 py-2 text-left font-medium text-gray-700">Signature</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-700">Size</th>
                     <SortHeader column="streaming" label="Stream" />
                     <SortHeader column="totalTokens" label="InOut" align="right" />
                     <SortHeader column="cacheReads" label="Cache" align="right" />
@@ -772,6 +777,9 @@ export default function TurnsIndex() {
                       <td className="px-3 py-2 text-amber-600 max-w-[120px] truncate" title={turn.requestSignature || undefined}>
                         {turn.requestSignature || '-'}
                       </td>
+                      <td className="px-3 py-2 text-right font-mono text-amber-600">
+                        {formatBytes(turn.requestBytes)}
+                      </td>
                       <td
                         className="px-3 py-2 text-green-600 border-l border-gray-200 cursor-pointer hover:bg-green-50 underline"
                         onMouseEnter={(e) => handleBodyHover(turn.id, 'response', e)}
@@ -780,6 +788,9 @@ export default function TurnsIndex() {
                       </td>
                       <td className="px-3 py-2 text-green-500 max-w-[120px] truncate" title={turn.responseSignature || undefined}>
                         {turn.responseSignature || '-'}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-green-600">
+                        {formatBytes(turn.responseBytes)}
                       </td>
                       <td className="px-3 py-2 text-gray-600 border-l border-gray-200">
                         {turn.streaming === null ? '-' : turn.streaming ? 'yes' : 'no'}

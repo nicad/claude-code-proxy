@@ -318,8 +318,10 @@ type TurnSummary struct {
 	LastMessageID     int64   `json:"lastMessageId"`
 	RequestRole       *string `json:"requestRole"`
 	RequestSignature  *string `json:"requestSignature"`
+	RequestBytes      int64   `json:"requestBytes"`
 	ResponseRole      *string `json:"responseRole"`
 	ResponseSignature *string `json:"responseSignature"`
+	ResponseBytes     int64   `json:"responseBytes"`
 	Streaming         *bool   `json:"streaming"`
 	StopReason        *string `json:"stopReason"`
 	TotalTokens       int64   `json:"totalTokens"`

@@ -1256,8 +1256,10 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 			r.model,
 			mc.role as request_role,
 			mc.signature as request_signature,
+			COALESCE(u.request_bytes, 0) as request_bytes,
 			rcs.response_role,
 			rcs.response_signature,
+			COALESCE(u.response_bytes, 0) as response_bytes,
 			COALESCE(u.input_tokens, 0) + COALESCE(u.output_tokens, 0) +
 				COALESCE(u.cache_creation_input_tokens, 0) as total_tokens,
 			COALESCE(u.cache_read_input_tokens, 0) as cache_reads
@@ -1295,8 +1297,10 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 			&t.Model,
 			&requestRole,
 			&requestSignature,
+			&t.RequestBytes,
 			&responseRole,
 			&responseSignature,
+			&t.ResponseBytes,
 			&t.TotalTokens,
 			&t.CacheReads,
 		)
