@@ -316,6 +316,175 @@ function ContextDisplay({ contextDisplay, context, onHover }: {
   );
 }
 
+interface BodyPopupState {
+  requestId: string;
+  type: 'request' | 'response';
+  x: number;
+  y: number;
+}
+
+interface ToolCall {
+  name: string;
+  id: string;
+  input: unknown;
+}
+
+function extractToolCalls(content: unknown[]): ToolCall[] {
+  const tools: ToolCall[] = [];
+  if (!Array.isArray(content)) return tools;
+
+  for (const block of content) {
+    if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_use') {
+      const tb = block as { name?: string; id?: string; input?: unknown };
+      tools.push({
+        name: tb.name || 'unknown',
+        id: tb.id || '',
+        input: tb.input
+      });
+    }
+  }
+  return tools;
+}
+
+function RequestBodyPopup({ requestId, position, onClose }: {
+  requestId: string;
+  position: { x: number; y: number };
+  onClose: () => void;
+}) {
+  const [body, setBody] = useState<unknown>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(`/api/requests/${requestId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!cancelled) {
+          setBody(data.body);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [requestId]);
+
+  const bodyText = body ? JSON.stringify(body, null, 2) : '';
+
+  return (
+    <div
+      className="fixed z-50 bg-white shadow-xl rounded-lg p-4 border border-gray-300"
+      style={{
+        left: Math.min(position.x - 20, window.innerWidth - 750),
+        top: Math.min(position.y - 10, window.innerHeight - 500),
+        width: '700px',
+        maxHeight: '480px'
+      }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-amber-700 uppercase">Request Body</span>
+        <div className="flex items-center space-x-2">
+          <span className="text-xs text-gray-400">{formatBytes(bodyText.length)}</span>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm px-1">✕</button>
+        </div>
+      </div>
+      {loading ? (
+        <div className="flex items-center space-x-2">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span className="text-sm text-gray-500">Loading...</span>
+        </div>
+      ) : (
+        <div className="overflow-auto max-h-[420px] bg-gray-50 rounded p-2 select-text">
+          <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap">{bodyText}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResponseBodyPopup({ requestId, position, onClose }: {
+  requestId: string;
+  position: { x: number; y: number };
+  onClose: () => void;
+}) {
+  const [response, setResponse] = useState<{ body?: unknown } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(`/api/requests/${requestId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!cancelled) {
+          setResponse(data.response);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [requestId]);
+
+  const responseBody = response?.body as { content?: unknown[] } | undefined;
+  const toolCalls = responseBody?.content ? extractToolCalls(responseBody.content) : [];
+  const bodyText = response ? JSON.stringify(response, null, 2) : '';
+
+  return (
+    <div
+      className="fixed z-50 bg-white shadow-xl rounded-lg p-4 border border-gray-300"
+      style={{
+        left: Math.min(position.x - 20, window.innerWidth - 750),
+        top: Math.min(position.y - 10, window.innerHeight - 550),
+        width: '700px',
+        maxHeight: '520px'
+      }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-green-700 uppercase">Response</span>
+        <div className="flex items-center space-x-2">
+          <span className="text-xs text-gray-400">{formatBytes(bodyText.length)}</span>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm px-1">✕</button>
+        </div>
+      </div>
+      {loading ? (
+        <div className="flex items-center space-x-2">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span className="text-sm text-gray-500">Loading...</span>
+        </div>
+      ) : (
+        <>
+          {toolCalls.length > 0 && (
+            <div className="mb-3 p-2 bg-purple-50 rounded border border-purple-200 overflow-auto max-h-40 select-text">
+              <div className="text-xs font-semibold text-purple-700 mb-2">Tool Calls ({toolCalls.length})</div>
+              <div className="space-y-2">
+                {toolCalls.map((tool, i) => (
+                  <div key={i} className="border-l-2 border-purple-300 pl-2">
+                    <div className="text-xs font-mono font-medium text-purple-600">{tool.name}</div>
+                    {tool.input && (
+                      <pre className="text-xs font-mono text-gray-600 whitespace-pre-wrap mt-1">
+                        {JSON.stringify(tool.input, null, 2)}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="overflow-auto max-h-72 bg-gray-50 rounded p-2 select-text">
+            <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap">{bodyText}</pre>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function TurnsIndex() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -326,6 +495,7 @@ export default function TurnsIndex() {
   const [sortOrder, setSortOrder] = useState<"ASC" | "DESC">("DESC");
   const [isFetching, setIsFetching] = useState(false);
   const [popup, setPopup] = useState<PopupState | null>(null);
+  const [bodyPopup, setBodyPopup] = useState<BodyPopupState | null>(null);
   const [initialized, setInitialized] = useState(false);
 
   const applyRangeFromLatest = useCallback((latest: string, days: number | 'all') => {
@@ -438,6 +608,10 @@ export default function TurnsIndex() {
 
   const handleMessageHover = (id: number, e: React.MouseEvent) => {
     setPopup({ messageId: id, x: e.clientX, y: e.clientY });
+  };
+
+  const handleBodyHover = (requestId: string, type: 'request' | 'response', e: React.MouseEvent) => {
+    setBodyPopup({ requestId, type, x: e.clientX, y: e.clientY });
   };
 
   const handleRefresh = () => {
@@ -589,13 +763,19 @@ export default function TurnsIndex() {
                       <td className="px-3 py-2 text-right text-xs">
                         <MessageIdLink id={turn.lastMessageId} onHover={handleMessageHover} />
                       </td>
-                      <td className="px-3 py-2 text-amber-700 border-l border-gray-200">
+                      <td
+                        className="px-3 py-2 text-amber-700 border-l border-gray-200 cursor-pointer hover:bg-amber-50 underline"
+                        onMouseEnter={(e) => handleBodyHover(turn.id, 'request', e)}
+                      >
                         {turn.requestRole || '-'}
                       </td>
                       <td className="px-3 py-2 text-amber-600 max-w-[120px] truncate" title={turn.requestSignature || undefined}>
                         {turn.requestSignature || '-'}
                       </td>
-                      <td className="px-3 py-2 text-green-600 border-l border-gray-200">
+                      <td
+                        className="px-3 py-2 text-green-600 border-l border-gray-200 cursor-pointer hover:bg-green-50 underline"
+                        onMouseEnter={(e) => handleBodyHover(turn.id, 'response', e)}
+                      >
                         {turn.responseRole || '-'}
                       </td>
                       <td className="px-3 py-2 text-green-500 max-w-[120px] truncate" title={turn.responseSignature || undefined}>
@@ -625,6 +805,29 @@ export default function TurnsIndex() {
             position={{ x: popup.x, y: popup.y }}
             onClose={() => setPopup(null)}
           />
+        )}
+
+        {/* Request/Response body popup with backdrop */}
+        {bodyPopup && (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setBodyPopup(null)}
+            />
+            {bodyPopup.type === 'request' ? (
+              <RequestBodyPopup
+                requestId={bodyPopup.requestId}
+                position={{ x: bodyPopup.x, y: bodyPopup.y }}
+                onClose={() => setBodyPopup(null)}
+              />
+            ) : (
+              <ResponseBodyPopup
+                requestId={bodyPopup.requestId}
+                position={{ x: bodyPopup.x, y: bodyPopup.y }}
+                onClose={() => setBodyPopup(null)}
+              />
+            )}
+          </>
         )}
       </main>
     </Layout>
