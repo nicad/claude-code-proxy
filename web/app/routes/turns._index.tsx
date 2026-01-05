@@ -31,6 +31,8 @@ interface Turn {
   stopReason: string | null;
   totalTokens: number;
   cacheReads: number;
+  systemCount: number;
+  toolsCount: number;
 }
 
 interface MessageContent {
@@ -388,7 +390,10 @@ function RequestBodyPopup({ requestId, position, onClose }: {
       }}
     >
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-amber-700 uppercase">Request Body</span>
+        <div className="flex items-center space-x-2">
+          <span className="text-xs font-semibold text-amber-700 uppercase">Request Body</span>
+          <span className="text-xs font-mono text-gray-500">{requestId}</span>
+        </div>
         <div className="flex items-center space-x-2">
           <span className="text-xs text-gray-400">{formatBytes(bodyText.length)}</span>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm px-1">✕</button>
@@ -449,7 +454,10 @@ function ResponseBodyPopup({ requestId, position, onClose }: {
       }}
     >
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-green-700 uppercase">Response</span>
+        <div className="flex items-center space-x-2">
+          <span className="text-xs font-semibold text-green-700 uppercase">Response</span>
+          <span className="text-xs font-mono text-gray-500">{requestId}</span>
+        </div>
         <div className="flex items-center space-x-2">
           <span className="text-xs text-gray-400">{formatBytes(bodyText.length)}</span>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm px-1">✕</button>
@@ -709,8 +717,8 @@ export default function TurnsIndex() {
                 <thead className="sticky top-0 z-10 bg-gray-100">
                   <tr className="border-b border-gray-300">
                     <th colSpan={6} className="px-3 py-1"></th>
-                    <th colSpan={3} className="px-3 py-1 text-center text-xs font-semibold text-amber-700 bg-amber-50 border-l border-gray-300">Request</th>
-                    <th colSpan={3} className="px-3 py-1 text-center text-xs font-semibold text-green-700 bg-green-50 border-l border-gray-300">Response</th>
+                    <th colSpan={5} className="px-3 py-1 text-center text-xs font-semibold text-amber-700 bg-amber-50 border-l border-gray-300">Request</th>
+                    <th colSpan={4} className="px-3 py-1 text-center text-xs font-semibold text-green-700 bg-green-50 border-l border-gray-300">Response</th>
                     <th colSpan={3} className="px-3 py-1 border-l border-gray-300"></th>
                   </tr>
                   <tr>
@@ -723,9 +731,12 @@ export default function TurnsIndex() {
                     <th className="px-3 py-2 text-left font-medium text-gray-700 border-l border-gray-300">Role</th>
                     <th className="px-3 py-2 text-left font-medium text-gray-700">Signature</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-700">Size</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-700">Sys</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-700">Tools</th>
                     <SortHeader column="responseRole" label="Role" />
                     <th className="px-3 py-2 text-left font-medium text-gray-700">Signature</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-700">Size</th>
+                    <th className="px-3 py-2 text-left font-medium text-gray-700">Stop</th>
                     <SortHeader column="streaming" label="Stream" />
                     <SortHeader column="totalTokens" label="InOut" align="right" />
                     <SortHeader column="cacheReads" label="Cache" align="right" />
@@ -780,6 +791,12 @@ export default function TurnsIndex() {
                       <td className="px-3 py-2 text-right font-mono text-amber-600">
                         {formatBytes(turn.requestBytes)}
                       </td>
+                      <td className="px-3 py-2 text-right font-mono text-amber-600">
+                        {turn.systemCount}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-amber-600">
+                        {turn.toolsCount}
+                      </td>
                       <td
                         className="px-3 py-2 text-green-600 border-l border-gray-200 cursor-pointer hover:bg-green-50 underline"
                         onMouseEnter={(e) => handleBodyHover(turn.id, 'response', e)}
@@ -791,6 +808,9 @@ export default function TurnsIndex() {
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-green-600">
                         {formatBytes(turn.responseBytes)}
+                      </td>
+                      <td className="px-3 py-2 text-green-600">
+                        {turn.stopReason || '-'}
                       </td>
                       <td className="px-3 py-2 text-gray-600 border-l border-gray-200">
                         {turn.streaming === null ? '-' : turn.streaming ? 'yes' : 'no'}
