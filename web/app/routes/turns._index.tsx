@@ -1,4 +1,5 @@
 import type { MetaFunction } from "@remix-run/node";
+import { Link, useSearchParams } from "@remix-run/react";
 import { useState, useEffect, useCallback } from "react";
 import { Loader2, Plus } from "lucide-react";
 
@@ -54,6 +55,16 @@ function formatTimestamp(ts: string): string {
     minute: '2-digit',
     second: '2-digit'
   }).replace(' ', ' ');
+}
+
+function toDatetimeLocal(isoString: string): string {
+  const d = new Date(isoString);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fromDatetimeLocal(localString: string): string {
+  return new Date(localString).toISOString();
 }
 
 function formatModel(model: string): string {
@@ -306,6 +317,7 @@ function ContextDisplay({ contextDisplay, context, onHover }: {
 }
 
 export default function TurnsIndex() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [total, setTotal] = useState(0);
   const [latestDate, setLatestDate] = useState<string | null>(null);
@@ -314,26 +326,53 @@ export default function TurnsIndex() {
   const [sortOrder, setSortOrder] = useState<"ASC" | "DESC">("DESC");
   const [isFetching, setIsFetching] = useState(false);
   const [popup, setPopup] = useState<PopupState | null>(null);
+  const [initialized, setInitialized] = useState(false);
 
-  const loadLatestDate = async () => {
+  const applyRangeFromLatest = useCallback((latest: string, days: number | 'all') => {
+    const end = new Date(latest);
+    let start: Date;
+    if (days === 'all') {
+      start = new Date('2020-01-01');
+    } else {
+      start = new Date(end);
+      start.setDate(start.getDate() - days);
+    }
+    return { start: start.toISOString(), end: end.toISOString() };
+  }, []);
+
+  const loadLatestDate = useCallback(async () => {
     try {
       const response = await fetch('/api/requests/latest-date');
       const data = await response.json();
       if (data.latestDate) {
         setLatestDate(data.latestDate);
-        // Set initial range to last 1 day
-        const end = new Date(data.latestDate);
-        const start = new Date(end);
-        start.setDate(start.getDate() - 1);
-        setDateRange({
-          start: start.toISOString(),
-          end: end.toISOString()
-        });
+
+        // Check URL params for initial state
+        const urlStart = searchParams.get('start');
+        const urlEnd = searchParams.get('end');
+        const urlRange = searchParams.get('range');
+
+        if (urlStart && urlEnd) {
+          // Use explicit start/end from URL
+          setDateRange({ start: urlStart, end: urlEnd });
+        } else if (urlRange) {
+          // Use range shortcut from URL
+          const days = urlRange === 'all' ? 'all' : parseInt(urlRange, 10);
+          if (days === 'all' || !isNaN(days as number)) {
+            setDateRange(applyRangeFromLatest(data.latestDate, days));
+          } else {
+            setDateRange(applyRangeFromLatest(data.latestDate, 1));
+          }
+        } else {
+          // Default to 1 day
+          setDateRange(applyRangeFromLatest(data.latestDate, 1));
+        }
+        setInitialized(true);
       }
     } catch (error) {
       console.error('Failed to load latest date:', error);
     }
-  };
+  }, [searchParams, applyRangeFromLatest]);
 
   const loadTurns = useCallback(async () => {
     if (!dateRange) return;
@@ -380,31 +419,21 @@ export default function TurnsIndex() {
 
   const expandRange = (days: number | 'all') => {
     if (!latestDate) return;
-    const end = new Date(latestDate);
-    let start: Date;
-
-    if (days === 'all') {
-      start = new Date('2020-01-01');
-    } else {
-      start = new Date(end);
-      start.setDate(start.getDate() - days);
-    }
-
-    setDateRange({
-      start: start.toISOString(),
-      end: end.toISOString()
-    });
+    const range = applyRangeFromLatest(latestDate, days);
+    setDateRange(range);
+    setSearchParams({ range: days.toString() });
   };
 
   const resetRange = () => {
     if (!latestDate) return;
-    const end = new Date(latestDate);
-    const start = new Date(end);
-    start.setDate(start.getDate() - 1);
-    setDateRange({
-      start: start.toISOString(),
-      end: end.toISOString()
-    });
+    const range = applyRangeFromLatest(latestDate, 1);
+    setDateRange(range);
+    setSearchParams({});
+  };
+
+  const updateDateRange = (newRange: { start: string; end: string }) => {
+    setDateRange(newRange);
+    setSearchParams({ start: newRange.start, end: newRange.end });
   };
 
   const handleMessageHover = (id: number, e: React.MouseEvent) => {
@@ -431,26 +460,26 @@ export default function TurnsIndex() {
     <Layout onRefresh={handleRefresh}>
       <main className="px-6 py-4 space-y-4">
         {/* Date range controls */}
-        <div className="flex items-center space-x-4 bg-white border border-gray-200 rounded-lg p-3">
-          <span className="text-sm text-gray-600">Range:</span>
+        <div className="flex items-center flex-wrap gap-3 bg-white border border-gray-200 rounded-lg p-3">
           <div className="flex items-center space-x-2">
+            <span className="text-sm text-gray-600">Range:</span>
             <button
               onClick={() => expandRange(1)}
               className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
             >
-              1 day
+              1d
             </button>
             <button
               onClick={() => expandRange(7)}
               className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
             >
-              1 week
+              1w
             </button>
             <button
               onClick={() => expandRange(30)}
               className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
             >
-              1 month
+              1m
             </button>
             <button
               onClick={() => expandRange('all')}
@@ -466,9 +495,21 @@ export default function TurnsIndex() {
             </button>
           </div>
           {dateRange && (
-            <span className="text-xs text-gray-500">
-              {formatTimestamp(dateRange.start)} → {formatTimestamp(dateRange.end)}
-            </span>
+            <div className="flex items-center space-x-2">
+              <input
+                type="datetime-local"
+                value={toDatetimeLocal(dateRange.start)}
+                onChange={(e) => updateDateRange({ ...dateRange, start: fromDatetimeLocal(e.target.value) })}
+                className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <span className="text-gray-400">→</span>
+              <input
+                type="datetime-local"
+                value={toDatetimeLocal(dateRange.end)}
+                onChange={(e) => updateDateRange({ ...dateRange, end: fromDatetimeLocal(e.target.value) })}
+                className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
           )}
           <span className="text-sm font-medium text-gray-700">{total} turns</span>
         </div>
@@ -490,13 +531,14 @@ export default function TurnsIndex() {
               <table className="w-full text-xs">
                 <thead className="sticky top-0 z-10 bg-gray-100">
                   <tr className="border-b border-gray-300">
-                    <th colSpan={5} className="px-3 py-1"></th>
+                    <th colSpan={6} className="px-3 py-1"></th>
                     <th colSpan={2} className="px-3 py-1 text-center text-xs font-semibold text-amber-700 bg-amber-50 border-l border-gray-300">Request</th>
                     <th colSpan={2} className="px-3 py-1 text-center text-xs font-semibold text-green-700 bg-green-50 border-l border-gray-300">Response</th>
                     <th colSpan={3} className="px-3 py-1 border-l border-gray-300"></th>
                   </tr>
                   <tr>
                     <SortHeader column="timestamp" label="Timestamp" />
+                    <th className="px-3 py-2 text-left font-medium text-gray-700">Id</th>
                     <SortHeader column="model" label="Model" />
                     <th className="px-3 py-2 text-left font-medium text-gray-700">Context</th>
                     <SortHeader column="messageCount" label="Msgs" align="right" />
@@ -515,6 +557,15 @@ export default function TurnsIndex() {
                     <tr key={turn.id} className="hover:bg-gray-50">
                       <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
                         {formatTimestamp(turn.timestamp)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Link
+                          to={`/requests/${turn.id}`}
+                          className="text-blue-600 hover:text-blue-800 hover:underline font-mono"
+                          title={turn.id}
+                        >
+                          {turn.id.slice(-8)}
+                        </Link>
                       </td>
                       <td className="px-3 py-2">
                         <span className={`font-medium ${
