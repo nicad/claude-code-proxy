@@ -1264,7 +1264,14 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 				COALESCE(u.cache_creation_input_tokens, 0) as total_tokens,
 			COALESCE(u.cache_read_input_tokens, 0) as cache_reads,
 			COALESCE(json_array_length(r.body, '$.system'), 0) as system_count,
-			COALESCE(json_array_length(r.body, '$.tools'), 0) as tools_count
+			COALESCE(json_array_length(r.body, '$.tools'), 0) as tools_count,
+			CASE
+				WHEN json_extract(mc.content, '$.content[0].text') LIKE '[%%' THEN 'LLM'
+				WHEN COALESCE(json_array_length(r.body, '$.tools'), 0) = 1 THEN 'LLM'
+				WHEN mc.role = 'user' AND mc.signature = 'text' AND COALESCE(json_array_length(r.body, '$.tools'), 0) > 0 THEN 'Prompt'
+				WHEN mc.role = 'user' AND mc.signature = 'text' AND COALESCE(json_array_length(r.body, '$.tools'), 0) = 0 THEN 'Agent'
+				ELSE 'LLM'
+			END as reason
 		FROM requests_context_summary rcs
 		JOIN requests r ON rcs.id = r.id
 		LEFT JOIN message_content mc ON rcs.last_message_id = mc.id
@@ -1307,6 +1314,7 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 			&t.CacheReads,
 			&t.SystemCount,
 			&t.ToolsCount,
+			&t.Reason,
 		)
 		if err != nil {
 			continue

@@ -33,6 +33,7 @@ interface Turn {
   cacheReads: number;
   systemCount: number;
   toolsCount: number;
+  reason: string;
 }
 
 interface MessageContent {
@@ -716,7 +717,7 @@ export default function TurnsIndex() {
               <table className="w-full text-xs">
                 <thead className="sticky top-0 z-10 bg-gray-100">
                   <tr className="border-b border-gray-300">
-                    <th colSpan={6} className="px-3 py-1"></th>
+                    <th colSpan={7} className="px-3 py-1"></th>
                     <th colSpan={5} className="px-3 py-1 text-center text-xs font-semibold text-amber-700 bg-amber-50 border-l border-gray-300">Request</th>
                     <th colSpan={4} className="px-3 py-1 text-center text-xs font-semibold text-green-700 bg-green-50 border-l border-gray-300">Response</th>
                     <th colSpan={3} className="px-3 py-1 border-l border-gray-300"></th>
@@ -728,6 +729,7 @@ export default function TurnsIndex() {
                     <th className="px-3 py-2 text-left font-medium text-gray-700">Context</th>
                     <SortHeader column="messageCount" label="Msgs" align="right" />
                     <SortHeader column="lastMessageId" label="Last Id" align="right" />
+                    <th className="px-3 py-2 text-left font-medium text-gray-700">Reason</th>
                     <th className="px-3 py-2 text-left font-medium text-gray-700 border-l border-gray-300">Role</th>
                     <th className="px-3 py-2 text-left font-medium text-gray-700">Signature</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-700">Size</th>
@@ -744,7 +746,7 @@ export default function TurnsIndex() {
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {turns.map((turn) => (
-                    <tr key={turn.id} className="hover:bg-gray-50">
+                    <tr key={turn.id} className={`${turn.reason === 'Prompt' ? 'bg-yellow-100 hover:bg-yellow-200 border-l-4 border-yellow-500' : 'hover:bg-gray-50'}`}>
                       <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
                         {formatTimestamp(turn.timestamp)}
                       </td>
@@ -778,6 +780,15 @@ export default function TurnsIndex() {
                       </td>
                       <td className="px-3 py-2 text-right text-xs">
                         <MessageIdLink id={turn.lastMessageId} onHover={handleMessageHover} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                          turn.reason === 'Prompt' ? 'bg-yellow-500 text-white' :
+                          turn.reason === 'Agent' ? 'bg-blue-100 text-blue-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {turn.reason}
+                        </span>
                       </td>
                       <td
                         className="px-3 py-2 text-amber-700 border-l border-gray-200 cursor-pointer hover:bg-amber-50 underline"
