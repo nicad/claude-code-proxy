@@ -136,6 +136,8 @@ func runServe(args []string) error {
 	r.HandleFunc("/api/conversations", h.GetConversations).Methods("GET")
 	r.HandleFunc("/api/conversations/{id}", h.GetConversationByID).Methods("GET")
 	r.HandleFunc("/api/conversations/project", h.GetConversationsByProject).Methods("GET")
+	r.HandleFunc("/api/turns", h.GetTurns).Methods("GET")
+	r.HandleFunc("/api/message-content/{id}", h.GetMessageContent).Methods("GET")
 
 	r.NotFoundHandler = http.HandlerFunc(h.NotFound)
 

@@ -193,16 +193,18 @@ func CreateMessagesTable(db *sql.DB, forceRecreate bool) error {
 
 	-- TODO: move some of it into the requests table ?
 	CREATE TABLE IF NOT EXISTS requests_context (
-		id                VARCHAR NOT NULL PRIMARY KEY,
-		timestamp         TIMESTAMP NOT NULL,
-		last_message_id   INTEGER NOT NULL,
-		context           TEXT NOT NULL,
-		new_context       TEXT NOT NULL,
-		context_msg_count INTEGER NOT NULL,
-		status_code       INTEGER,
-		streaming         INTEGER,
-		stop_reason       TEXT,
-		response_id       TEXT
+		id                 VARCHAR NOT NULL PRIMARY KEY,
+		timestamp          TIMESTAMP NOT NULL,
+		last_message_id    INTEGER NOT NULL,
+		context            TEXT NOT NULL,
+		new_context        TEXT NOT NULL,
+		context_msg_count  INTEGER NOT NULL,
+		status_code        INTEGER,
+		streaming          INTEGER,
+		stop_reason        TEXT,
+		response_id        TEXT,
+		response_role      TEXT,
+		response_signature TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_requests_context_ts ON requests_context(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_requests_context_last_msg ON requests_context(last_message_id);
@@ -246,7 +248,9 @@ func CreateMessagesTable(db *sql.DB, forceRecreate bool) error {
 		status_code,
 		streaming,
 		stop_reason,
-		response_id
+		response_id,
+		response_role,
+		response_signature
 	FROM parsed;
 	`
 
@@ -275,6 +279,8 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 	var streaming *int
 	var stopReason *string
 	var responseID *string
+	var responseRole *string
+	var responseSignature *string
 	if responseJSON.Valid {
 		var resp struct {
 			StatusCode  int             `json:"statusCode"`
@@ -291,18 +297,34 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 			}
 			streaming = &streamVal
 
-			// Extract stop_reason and id from body
+			// Extract stop_reason, id, role, and content signature from body
 			if len(resp.Body) > 0 {
-				var body struct {
+				var respBody struct {
 					StopReason string `json:"stop_reason"`
 					ID         string `json:"id"`
+					Role       string `json:"role"`
+					Content    []struct {
+						Type string `json:"type"`
+					} `json:"content"`
 				}
-				if err := json.Unmarshal(resp.Body, &body); err == nil {
-					if body.StopReason != "" {
-						stopReason = &body.StopReason
+				if err := json.Unmarshal(resp.Body, &respBody); err == nil {
+					if respBody.StopReason != "" {
+						stopReason = &respBody.StopReason
 					}
-					if body.ID != "" {
-						responseID = &body.ID
+					if respBody.ID != "" {
+						responseID = &respBody.ID
+					}
+					if respBody.Role != "" {
+						responseRole = &respBody.Role
+					}
+					// Build signature from content types
+					if len(respBody.Content) > 0 {
+						types := make([]string, len(respBody.Content))
+						for i, c := range respBody.Content {
+							types[i] = c.Type
+						}
+						sig := strings.Join(types, ",")
+						responseSignature = &sig
 					}
 				}
 			}
@@ -409,9 +431,9 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 	newContext := strings.Join(contextIDs, ",")
 
 	_, err = tx.Exec(`
-		INSERT INTO requests_context (id, timestamp, last_message_id, context, new_context, context_msg_count, status_code, streaming, stop_reason, response_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, requestID, timestamp, lastMessageID, context, newContext, contextMsgCount, statusCode, streaming, stopReason, responseID)
+		INSERT INTO requests_context (id, timestamp, last_message_id, context, new_context, context_msg_count, status_code, streaming, stop_reason, response_id, response_role, response_signature)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, requestID, timestamp, lastMessageID, context, newContext, contextMsgCount, statusCode, streaming, stopReason, responseID, responseRole, responseSignature)
 	if err != nil {
 		return fmt.Errorf("failed to insert requests_context: %w", err)
 	}

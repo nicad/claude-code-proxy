@@ -898,3 +898,61 @@ func (h *Handler) GetPricing(w http.ResponseWriter, r *http.Request) {
 		Models: pricing,
 	})
 }
+
+// GetTurns returns turn summaries with context information
+func (h *Handler) GetTurns(w http.ResponseWriter, r *http.Request) {
+	startTime := r.URL.Query().Get("start")
+	endTime := r.URL.Query().Get("end")
+
+	if startTime == "" || endTime == "" {
+		http.Error(w, "start and end parameters are required", http.StatusBadRequest)
+		return
+	}
+
+	sortBy := r.URL.Query().Get("sortBy")
+	if sortBy == "" {
+		sortBy = "timestamp"
+	}
+
+	sortOrder := strings.ToUpper(r.URL.Query().Get("sortOrder"))
+	if sortOrder != "ASC" && sortOrder != "DESC" {
+		sortOrder = "DESC"
+	}
+
+	turns, total, err := h.storageService.GetTurns(startTime, endTime, sortBy, sortOrder)
+	if err != nil {
+		log.Printf("ERROR GetTurns: start=%s end=%s sortBy=%s sortOrder=%s err=%v", startTime, endTime, sortBy, sortOrder, err)
+		http.Error(w, fmt.Sprintf("Failed to get turns: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Turns []model.TurnSummary `json:"turns"`
+		Total int                 `json:"total"`
+	}{
+		Turns: turns,
+		Total: total,
+	})
+}
+
+// GetMessageContent returns the content of a specific message by ID
+func (h *Handler) GetMessageContent(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid message ID", http.StatusBadRequest)
+		return
+	}
+
+	content, err := h.storageService.GetMessageContent(id)
+	if err != nil {
+		log.Printf("Error getting message content: %v", err)
+		http.Error(w, "Message not found", http.StatusNotFound)
+		return
+	}
+
+	writeJSONResponse(w, content)
+}

@@ -1217,3 +1217,143 @@ func (s *sqliteStorageService) GetHourlyUsage() ([]model.HourlyUsage, error) {
 
 	return results, nil
 }
+
+// GetTurns returns turn summaries with context information for a date range
+func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder string) ([]model.TurnSummary, int, error) {
+	// Validate sort column
+	validColumns := map[string]string{
+		"timestamp":         "rcs.timestamp",
+		"model":             "r.model",
+		"messageCount":      "message_count",
+		"lastMessageId":     "rcs.last_message_id",
+		"requestRole":       "request_role",
+		"requestSignature":  "request_signature",
+		"responseRole":      "rcs.response_role",
+		"responseSignature": "rcs.response_signature",
+		"streaming":         "rcs.streaming",
+		"totalTokens":       "total_tokens",
+		"cacheReads":        "cache_reads",
+	}
+	sortColumn, ok := validColumns[sortBy]
+	if !ok {
+		sortColumn = "rcs.timestamp"
+	}
+
+	if sortOrder != "ASC" && sortOrder != "DESC" {
+		sortOrder = "DESC"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			rcs.id,
+			rcs.timestamp,
+			rcs.context,
+			rcs.context_display,
+			rcs.context_size + 1 as message_count,
+			rcs.last_message_id,
+			rcs.streaming,
+			rcs.stop_reason,
+			r.model,
+			mc.role as request_role,
+			mc.signature as request_signature,
+			rcs.response_role,
+			rcs.response_signature,
+			COALESCE(u.input_tokens, 0) + COALESCE(u.output_tokens, 0) +
+				COALESCE(u.cache_creation_input_tokens, 0) as total_tokens,
+			COALESCE(u.cache_read_input_tokens, 0) as cache_reads
+		FROM requests_context_summary rcs
+		JOIN requests r ON rcs.id = r.id
+		LEFT JOIN message_content mc ON rcs.last_message_id = mc.id
+		LEFT JOIN usage u ON rcs.id = u.id
+		WHERE datetime(rcs.timestamp) >= datetime(?)
+		  AND datetime(rcs.timestamp) <= datetime(?)
+		ORDER BY %s %s
+	`, sortColumn, sortOrder)
+
+	rows, err := s.db.Query(query, startTime, endTime)
+	if err != nil {
+		log.Printf("GetTurns SQL error: %v\nQuery: %s\nArgs: start=%s end=%s", err, query, startTime, endTime)
+		return nil, 0, fmt.Errorf("failed to query turns: %w", err)
+	}
+	defer rows.Close()
+
+	var turns []model.TurnSummary
+	for rows.Next() {
+		var t model.TurnSummary
+		var streaming sql.NullInt64
+		var stopReason, requestRole, requestSignature, responseRole, responseSignature sql.NullString
+
+		err := rows.Scan(
+			&t.ID,
+			&t.Timestamp,
+			&t.Context,
+			&t.ContextDisplay,
+			&t.MessageCount,
+			&t.LastMessageID,
+			&streaming,
+			&stopReason,
+			&t.Model,
+			&requestRole,
+			&requestSignature,
+			&responseRole,
+			&responseSignature,
+			&t.TotalTokens,
+			&t.CacheReads,
+		)
+		if err != nil {
+			continue
+		}
+
+		if streaming.Valid {
+			val := streaming.Int64 == 1
+			t.Streaming = &val
+		}
+		if stopReason.Valid {
+			t.StopReason = &stopReason.String
+		}
+		if requestRole.Valid {
+			t.RequestRole = &requestRole.String
+		}
+		if requestSignature.Valid {
+			t.RequestSignature = &requestSignature.String
+		}
+		if responseRole.Valid {
+			t.ResponseRole = &responseRole.String
+		}
+		if responseSignature.Valid {
+			t.ResponseSignature = &responseSignature.String
+		}
+
+		turns = append(turns, t)
+	}
+
+	return turns, len(turns), nil
+}
+
+// GetMessageContent returns the content of a specific message by ID
+func (s *sqliteStorageService) GetMessageContent(id int64) (*model.MessageContentRecord, error) {
+	query := `
+		SELECT id, role, signature, content, created_at
+		FROM message_content
+		WHERE id = ?
+	`
+
+	var rec model.MessageContentRecord
+	var content string
+	err := s.db.QueryRow(query, id).Scan(
+		&rec.ID,
+		&rec.Role,
+		&rec.Signature,
+		&content,
+		&rec.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("message content with ID %d not found", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query message content: %w", err)
+	}
+
+	rec.Content = json.RawMessage(content)
+	return &rec, nil
+}

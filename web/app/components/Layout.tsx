@@ -14,6 +14,7 @@ export function Layout({ children, onRefresh, onClear, showActions = true }: Lay
   const getActiveTab = () => {
     if (location.pathname.startsWith("/conversations")) return "conversations";
     if (location.pathname.startsWith("/tokens")) return "tokens";
+    if (location.pathname.startsWith("/turns")) return "turns";
     return "requests";
   };
 
@@ -86,6 +87,16 @@ export function Layout({ children, onRefresh, onClear, showActions = true }: Lay
             }`}
           >
             Tokens
+          </Link>
+          <Link
+            to="/turns"
+            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+              activeTab === "turns"
+                ? "bg-white text-gray-900 shadow-sm"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            Turns
           </Link>
         </div>
       </div>

@@ -26,4 +26,7 @@ type StorageService interface {
 	GetHourlyStats(startTime, endTime string) (*model.HourlyStatsResponse, error)
 	GetModelStats(startTime, endTime string) (*model.ModelStatsResponse, error)
 	GetLatestRequestDate() (*time.Time, error)
+	// Turns tab methods
+	GetTurns(startTime, endTime, sortBy, sortOrder string) ([]model.TurnSummary, int, error)
+	GetMessageContent(id int64) (*model.MessageContentRecord, error)
 }

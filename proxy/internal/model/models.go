@@ -306,3 +306,31 @@ type ModelTokens struct {
 	Tokens   int64  `json:"tokens"`
 	Requests int    `json:"requests"`
 }
+
+// TurnSummary represents a request with its context summary for the Turns tab
+type TurnSummary struct {
+	ID                string  `json:"id"`
+	Timestamp         string  `json:"timestamp"`
+	Model             string  `json:"model"`
+	Context           string  `json:"context"`
+	ContextDisplay    string  `json:"contextDisplay"`
+	MessageCount      int     `json:"messageCount"`
+	LastMessageID     int64   `json:"lastMessageId"`
+	RequestRole       *string `json:"requestRole"`
+	RequestSignature  *string `json:"requestSignature"`
+	ResponseRole      *string `json:"responseRole"`
+	ResponseSignature *string `json:"responseSignature"`
+	Streaming         *bool   `json:"streaming"`
+	StopReason        *string `json:"stopReason"`
+	TotalTokens       int64   `json:"totalTokens"`
+	CacheReads        int64   `json:"cacheReads"`
+}
+
+// MessageContentRecord represents a message stored in the message_content table
+type MessageContentRecord struct {
+	ID        int64           `json:"id"`
+	Role      string          `json:"role"`
+	Signature string          `json:"signature"`
+	Content   json.RawMessage `json:"content"`
+	CreatedAt string          `json:"createdAt"`
+}
