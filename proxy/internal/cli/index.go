@@ -330,6 +330,38 @@ func sha256Hash(data []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
+// normalizeMessage normalizes message content for consistent hashing:
+// 1. Converts string content to array format: "content":"text" -> "content":[{"type":"text","text":"text"}]
+// 2. Removes cache_control fields from content blocks
+func normalizeMessage(msgRaw json.RawMessage) json.RawMessage {
+	var msg map[string]interface{}
+	if err := json.Unmarshal(msgRaw, &msg); err != nil {
+		return msgRaw // fallback to original
+	}
+
+	// Normalize content format and remove cache_control
+	switch content := msg["content"].(type) {
+	case string:
+		// Convert string content to array format
+		msg["content"] = []interface{}{
+			map[string]interface{}{"type": "text", "text": content},
+		}
+	case []interface{}:
+		// Remove cache_control from each block
+		for _, block := range content {
+			if blockMap, ok := block.(map[string]interface{}); ok {
+				delete(blockMap, "cache_control")
+			}
+		}
+	}
+
+	normalized, err := json.Marshal(msg)
+	if err != nil {
+		return msgRaw
+	}
+	return normalized
+}
+
 // InsertMessageRows extracts messages from a request's body and inserts them into the messages table.
 // Handles both array content (multiple content blocks) and string content (simple text).
 func InsertMessageRows(db *sql.DB, requestID string) error {
@@ -477,8 +509,9 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 			return fmt.Errorf("failed to parse message %d: %w", msgPos, err)
 		}
 
-		// Compute hash of full message
-		messageHash := sha256Hash(msgRaw)
+		// Normalize message (remove cache_control) before hashing and storing
+		normalizedMsg := normalizeMessage(msgRaw)
+		messageHash := sha256Hash(normalizedMsg)
 
 		// Try to find existing message_content
 		var messageID int64
@@ -486,7 +519,7 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 		if err == sql.ErrNoRows {
 			// Need to insert new content
 			signature := computeSignature(msg.Content)
-			err = insertContentStmt.QueryRow(messageHash, msg.Role, signature, string(msgRaw), requestID).Scan(&messageID)
+			err = insertContentStmt.QueryRow(messageHash, msg.Role, signature, string(normalizedMsg), requestID).Scan(&messageID)
 			if err != nil {
 				return fmt.Errorf("failed to insert message_content: %w", err)
 			}
