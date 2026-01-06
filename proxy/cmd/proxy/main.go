@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 
 	"github.com/seifghazi/claude-code-monitor/internal/cli"
@@ -28,7 +27,7 @@ func main() {
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "serve", "reindex-messages", "find-conversations", "help", "-h", "--help":
+		case "serve", "index-messages", "find-conversations", "help", "-h", "--help":
 			cmd = os.Args[1]
 			args = os.Args[2:]
 		default:
@@ -41,8 +40,8 @@ func main() {
 	switch cmd {
 	case "serve":
 		err = runServe(args)
-	case "reindex-messages":
-		err = cli.RunReindexMessages(args)
+	case "index-messages":
+		err = cli.RunIndexMessages(args)
 	case "find-conversations":
 		err = cli.RunFindConversations(args)
 	case "help", "-h", "--help":
@@ -64,7 +63,7 @@ Usage:
 
 Commands:
   serve              Start the proxy server (default)
-  reindex-messages   Reindex requests into the messages table
+  index-messages     Index requests into the messages table
   find-conversations Find conversation chain for a request
   help               Show this help message
 
@@ -73,7 +72,8 @@ Run 'proxy <command> --help' for more information on a command.
 Examples:
   proxy                                    # Start server (default)
   proxy serve                              # Start server explicitly
-  proxy reindex-messages --db requests.db
+  proxy index-messages --db requests.db
+  proxy index-messages --db requests.db --recreate
   proxy find-conversations --id abc123`)
 }
 
@@ -107,19 +107,16 @@ func runServe(args []string) error {
 
 	r := mux.NewRouter()
 
-	corsHandler := handlers.CORS(
-		handlers.AllowedOrigins([]string{"*"}),
-		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
-		handlers.AllowedHeaders([]string{"*"}),
-	)
-
+	// Use logging middleware for all routes
 	r.Use(middleware.Logging)
 
+	// LLM API routes (no CORS wrapper to avoid buffering streaming responses)
 	r.HandleFunc("/v1/chat/completions", h.ChatCompletions).Methods("POST")
 	r.HandleFunc("/v1/messages", h.Messages).Methods("POST")
 	r.HandleFunc("/v1/models", h.Models).Methods("GET")
 	r.HandleFunc("/health", h.Health).Methods("GET")
 
+	// Web UI and API routes
 	r.HandleFunc("/", h.UI).Methods("GET")
 	r.HandleFunc("/ui", h.UI).Methods("GET")
 	r.HandleFunc("/api/requests", h.GetRequests).Methods("GET")
@@ -141,9 +138,12 @@ func runServe(args []string) error {
 
 	r.NotFoundHandler = http.HandlerFunc(h.NotFound)
 
+	// Note: Removed CORS handler to avoid potential buffering issues with streaming
+	// If CORS is needed for web UI, add it back but exclude /v1/* routes
+
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
-		Handler:      corsHandler(r),
+		Handler:      r,
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 		IdleTimeout:  cfg.Server.IdleTimeout,

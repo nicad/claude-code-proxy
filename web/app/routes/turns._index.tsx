@@ -754,9 +754,8 @@ export default function TurnsIndex() {
                         <Link
                           to={`/requests/${turn.id}`}
                           className="text-blue-600 hover:text-blue-800 hover:underline font-mono"
-                          title={turn.id}
                         >
-                          {turn.id.slice(-8)}
+                          {turn.id}
                         </Link>
                       </td>
                       <td className="px-3 py-2">

@@ -49,6 +49,8 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Messages(w http.ResponseWriter, r *http.Request) {
+	receivedAt := time.Now()
+
 	// Get body bytes from context (set by middleware)
 	bodyBytes := getBodyBytes(r)
 	if bodyBytes == nil {
@@ -66,6 +68,9 @@ func (h *Handler) Messages(w http.ResponseWriter, r *http.Request) {
 
 	requestID := generateRequestID()
 	startTime := time.Now()
+
+	log.Printf("→ [RECV] id=%s stream=%v model=%s",
+		requestID, req.Stream, req.Model)
 
 	// Use model router to determine provider and route the request
 	decision, err := h.modelRouter.DetermineRoute(&req)
@@ -112,7 +117,27 @@ func (h *Handler) Messages(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("Content-Length", fmt.Sprintf("%d", len(updatedBodyBytes)))
 	}
 
+	// For streaming requests, immediately send headers to the client
+	// This prevents Claude Code from timing out while waiting for Anthropic's first response
+	if req.Stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering if present
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+			log.Printf("→ [HEADERS_FLUSHED] id=%s", requestID)
+		} else {
+			log.Printf("⚠️ [NO_FLUSHER] id=%s - ResponseWriter does not support Flush!", requestID)
+		}
+	}
+
 	// Forward the request to the selected provider
+	forwardedAt := time.Now()
+	log.Printf("↑ [FWD] id=%s delay_ms=%d",
+		requestID, forwardedAt.Sub(receivedAt).Milliseconds())
+
 	resp, err := decision.Provider.ForwardRequest(r.Context(), r)
 	if err != nil {
 		log.Printf("❌ Error forwarding to %s API: %v", decision.Provider.Name(), err)
@@ -120,6 +145,10 @@ func (h *Handler) Messages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+
+	responseAt := time.Now()
+	log.Printf("↓ [RESP] id=%s status=%d latency_ms=%d",
+		requestID, resp.StatusCode, responseAt.Sub(forwardedAt).Milliseconds())
 
 	if req.Stream {
 		h.handleStreamingResponse(w, resp, requestLog, startTime)
@@ -434,10 +463,8 @@ func (h *Handler) GetHourlyUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Response, requestLog *model.RequestLog, startTime time.Time) {
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	// Note: Headers were already sent and flushed in Messages() handler
+	// to prevent Claude Code from timing out while waiting for Anthropic
 
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("❌ Anthropic API error: %d", resp.StatusCode)
@@ -470,19 +497,51 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 	var messageID string
 	var modelName string
 	var stopReason string
+	chunkCount := 0
 
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" || !strings.HasPrefix(line, "data:") {
-			continue
+	// Use a buffered reader for more control over SSE parsing
+	reader := bufio.NewReader(resp.Body)
+
+	lineCount := 0
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("❌ Stream read error: %v", err)
+			}
+			break
 		}
 
-		streamingChunks = append(streamingChunks, line)
-		fmt.Fprintf(w, "%s\n\n", line)
+		lineCount++
+		if lineCount == 1 {
+			log.Printf("↓ [FIRST_LINE] id=%s time_ms=%d line=%q",
+				requestLog.RequestID, time.Since(startTime).Milliseconds(), line[:min(50, len(line))])
+		}
+
+		// Forward every line to the client immediately (including event: lines and empty lines)
+		n, writeErr := fmt.Fprint(w, line)
+		if writeErr != nil {
+			log.Printf("❌ Stream write error: %v", writeErr)
+			break
+		}
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
+		if lineCount == 1 {
+			log.Printf("← [FIRST_LINE_SENT] id=%s bytes=%d", requestLog.RequestID, n)
+		}
+
+		line = strings.TrimSuffix(line, "\n")
+		line = strings.TrimSuffix(line, "\r")
+
+		// Only process data: lines for our internal tracking
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		chunkCount++
+		log.Printf("↓ [CHUNK] id=%s n=%d bytes=%d", requestLog.RequestID, chunkCount, len(line))
+		streamingChunks = append(streamingChunks, line)
 
 		jsonData := strings.TrimPrefix(line, "data: ")
 
@@ -507,6 +566,8 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 					stopReason = reason
 				}
 			}
+			log.Printf("↓ [STREAM] id=%s anthropic_id=%s model=%s",
+				requestLog.RequestID, messageID, modelName)
 		}
 
 		// Capture usage data from message_delta event
@@ -609,11 +670,8 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 		log.Printf("❌ Error updating request with streaming response: %v", err)
 	}
 
-	if err := scanner.Err(); err != nil {
-		log.Printf("❌ Streaming error: %v", err)
-	} else {
-		log.Println("✅ Streaming response completed")
-	}
+	log.Printf("← [SENT] id=%s stream=true duration_ms=%d chunks=%d",
+		requestLog.RequestID, time.Since(startTime).Milliseconds(), chunkCount)
 }
 
 func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.Response, requestLog *model.RequestLog, startTime time.Time) {
@@ -659,11 +717,16 @@ func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.R
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
 		w.Write(responseBytes)
+		log.Printf("← [SENT] id=%s stream=false duration_ms=%d status=%d",
+			requestLog.RequestID, time.Since(startTime).Milliseconds(), resp.StatusCode)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(responseBytes)
+
+	log.Printf("← [SENT] id=%s stream=false duration_ms=%d",
+		requestLog.RequestID, time.Since(startTime).Milliseconds())
 }
 
 // Helper function to get minimum of two integers

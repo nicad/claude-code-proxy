@@ -213,6 +213,9 @@ func (s *sqliteStorageService) SaveRequest(request *model.RequestLog) (string, e
 		return "", fmt.Errorf("failed to insert request: %w", err)
 	}
 
+	log.Printf("💾 [DB_INSERT] id=%s model=%s",
+		request.RequestID, request.Model)
+
 	return request.RequestID, nil
 }
 
@@ -392,6 +395,13 @@ func (s *sqliteStorageService) UpdateRequestWithResponse(request *model.RequestL
 	if err != nil {
 		return fmt.Errorf("failed to update request with response: %w", err)
 	}
+
+	statusCode := 0
+	if request.Response != nil {
+		statusCode = request.Response.StatusCode
+	}
+	log.Printf("💾 [DB_UPDATE] id=%s status=%d tokens_in=%d tokens_out=%d",
+		request.RequestID, statusCode, tokensInput, tokensOutput)
 
 	return nil
 }
