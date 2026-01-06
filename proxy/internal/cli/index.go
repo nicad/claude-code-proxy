@@ -395,6 +395,23 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 				}
 			}
 		}
+
+		// Fallback: parse streamingChunks if content is empty (streaming responses)
+		if responseSignature == nil || stopReason == nil {
+			var respWithChunks struct {
+				StreamingChunks []string `json:"streamingChunks"`
+			}
+			if err := json.Unmarshal([]byte(responseJSON.String), &respWithChunks); err == nil && len(respWithChunks.StreamingChunks) > 0 {
+				contentTypes, sr := parseStreamingChunks(respWithChunks.StreamingChunks)
+				if responseSignature == nil && len(contentTypes) > 0 {
+					sig := strings.Join(contentTypes, ",")
+					responseSignature = &sig
+				}
+				if stopReason == nil && sr != "" {
+					stopReason = &sr
+				}
+			}
+		}
 	}
 
 	var request struct {
@@ -505,6 +522,34 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 	}
 
 	return tx.Commit()
+}
+
+// parseStreamingChunks extracts content types and stop_reason from SSE streaming chunks
+func parseStreamingChunks(chunks []string) (contentTypes []string, stopReason string) {
+	for _, chunk := range chunks {
+		data := strings.TrimPrefix(chunk, "data: ")
+		var event map[string]interface{}
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			continue
+		}
+
+		eventType, _ := event["type"].(string)
+		switch eventType {
+		case "content_block_start":
+			if cb, ok := event["content_block"].(map[string]interface{}); ok {
+				if t, ok := cb["type"].(string); ok {
+					contentTypes = append(contentTypes, t)
+				}
+			}
+		case "message_delta":
+			if delta, ok := event["delta"].(map[string]interface{}); ok {
+				if sr, ok := delta["stop_reason"].(string); ok && sr != "" {
+					stopReason = sr
+				}
+			}
+		}
+	}
+	return
 }
 
 // computeSignature extracts content types and joins them with ","
