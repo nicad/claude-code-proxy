@@ -371,6 +371,7 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 					Role       string `json:"role"`
 					Content    []struct {
 						Type string `json:"type"`
+						Name string `json:"name,omitempty"`
 					} `json:"content"`
 				}
 				if err := json.Unmarshal(resp.Body, &respBody); err == nil {
@@ -387,7 +388,11 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 					if len(respBody.Content) > 0 {
 						types := make([]string, len(respBody.Content))
 						for i, c := range respBody.Content {
-							types[i] = c.Type
+							t := c.Type
+							if t == "tool_use" && c.Name != "" {
+								t = "tool_use=" + c.Name
+							}
+							types[i] = t
 						}
 						sig := strings.Join(types, ",")
 						responseSignature = &sig
@@ -538,6 +543,12 @@ func parseStreamingChunks(chunks []string) (contentTypes []string, stopReason st
 		case "content_block_start":
 			if cb, ok := event["content_block"].(map[string]interface{}); ok {
 				if t, ok := cb["type"].(string); ok {
+					// For tool_use, include the tool name
+					if t == "tool_use" {
+						if name, ok := cb["name"].(string); ok && name != "" {
+							t = "tool_use=" + name
+						}
+					}
 					contentTypes = append(contentTypes, t)
 				}
 			}
