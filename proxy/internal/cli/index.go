@@ -14,24 +14,27 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type ReindexMessagesOptions struct {
+type IndexMessagesOptions struct {
 	DBPath          string
 	Debug           bool
 	ContinueOnError bool
+	Recreate        bool
 }
 
-func RunReindexMessages(args []string) error {
-	fs := flag.NewFlagSet("reindex-messages", flag.ExitOnError)
-	opts := &ReindexMessagesOptions{}
+func RunIndexMessages(args []string) error {
+	fs := flag.NewFlagSet("index-messages", flag.ExitOnError)
+	opts := &IndexMessagesOptions{}
 
 	fs.StringVar(&opts.DBPath, "db", "requests.db", "Path to SQLite database")
 	fs.BoolVar(&opts.Debug, "debug", false, "Print debug info on errors")
 	fs.BoolVar(&opts.ContinueOnError, "continue-on-error", false, "Continue processing after errors")
+	fs.BoolVar(&opts.Recreate, "recreate", false, "Drop and recreate tables before indexing")
 
 	fs.Usage = func() {
-		fmt.Println(`Usage: proxy reindex-messages [options]
+		fmt.Println(`Usage: proxy index-messages [options]
 
-Reindex requests into the messages table by extracting message content from request bodies.
+Index requests into the messages table by extracting message content from request bodies.
+By default, only indexes new requests since last run. Use --recreate to rebuild from scratch.
 
 Options:`)
 		fs.PrintDefaults()
@@ -52,14 +55,32 @@ Options:`)
 	}
 	defer db.Close()
 
-	if err := CreateMessagesTable(db, true); err != nil {
+	// Check if tables exist and determine if we need full recreate
+	tablesExist := checkTablesExist(db)
+	forceRecreate := opts.Recreate || !tablesExist
+
+	if err := CreateMessagesTable(db, forceRecreate); err != nil {
 		return fmt.Errorf("failed to create messages table: %w", err)
 	}
 
-	requests, err := fetchAllRequestIDs(db)
+	var requests []requestRef
+	if forceRecreate {
+		fmt.Println("Indexing all requests...")
+		requests, err = fetchAllRequestIDs(db)
+	} else {
+		fmt.Println("Indexing new requests since last run...")
+		requests, err = fetchNewRequestIDs(db)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to fetch request IDs: %w", err)
 	}
+
+	if len(requests) == 0 {
+		fmt.Println("No new requests to index.")
+		return nil
+	}
+
+	fmt.Printf("Found %d requests to index\n", len(requests))
 
 	successCount := 0
 	errorCount := 0
@@ -109,6 +130,51 @@ type requestRef struct {
 
 func fetchAllRequestIDs(db *sql.DB) ([]requestRef, error) {
 	rows, err := db.Query("SELECT id, timestamp FROM requests ORDER BY timestamp")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var requests []requestRef
+	for rows.Next() {
+		var r requestRef
+		if err := rows.Scan(&r.ID, &r.Timestamp); err != nil {
+			return nil, err
+		}
+		requests = append(requests, r)
+	}
+	return requests, rows.Err()
+}
+
+// checkTablesExist returns true if the requests_context table exists
+func checkTablesExist(db *sql.DB) bool {
+	var name string
+	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='requests_context'").Scan(&name)
+	return err == nil
+}
+
+// fetchNewRequestIDs fetches requests that haven't been indexed yet.
+// To handle inflight requests from previous runs, it looks back 10 minutes from the most recent indexed request.
+func fetchNewRequestIDs(db *sql.DB) ([]requestRef, error) {
+	// Get the most recent timestamp from requests_context
+	var maxTimestamp string
+	err := db.QueryRow("SELECT MAX(timestamp) FROM requests_context").Scan(&maxTimestamp)
+	if err != nil || maxTimestamp == "" {
+		// No indexed requests yet, fetch all
+		return fetchAllRequestIDs(db)
+	}
+
+	// Fetch requests that are:
+	// 1. At least 10 minutes before the max timestamp (to catch inflight)
+	// 2. Not already in requests_context
+	query := `
+		SELECT r.id, r.timestamp
+		FROM requests r
+		WHERE datetime(r.timestamp) >= datetime(?, '-10 minutes')
+		  AND r.id NOT IN (SELECT id FROM requests_context)
+		ORDER BY r.timestamp
+	`
+	rows, err := db.Query(query, maxTimestamp)
 	if err != nil {
 		return nil, err
 	}
