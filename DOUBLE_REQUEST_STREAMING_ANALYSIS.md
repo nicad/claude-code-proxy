@@ -183,6 +183,127 @@ The duplicate entries are **client behavior**, not a proxy bug. Claude Code inte
 
 Currently no mitigation is applied - both requests are logged as received.
 
+## Update on 2026/01/05
+
+### Claude Code's theory - WRONG
+
+    Summary: Why Claude Code sends two requests
+
+      | Aspect         | Streaming                  | Non-streaming                    |
+      |----------------|----------------------------|----------------------------------|
+      | Purpose        | Real-time terminal display | Cache warming + thinking capture |
+      | Timing         | First                      | ~10 seconds later                |
+      | Cache behavior | Reads existing cache       | Creates ephemeral 5m cache       |
+      | Response       | Text only                  | Thinking + Text                  |
+      | Helper method  | stream                     | (none)                           |
+
+      Hypothesis: Claude Code intentionally sends both:
+      1. Streaming for fast first-token latency and real-time UX
+      2. Non-streaming to:
+        - Refresh the ephemeral prompt cache (5-minute TTL)
+        - Capture extended thinking output (not available in streaming mode?)
+        - Perhaps for conversation logging/validation
+
+      This is by design, not a bug. Both requests consume separate API tokens. The non-streaming request essentially "pays" to keep the cache warm for future requests.
+
+### Claude Code investigation in more details
+
+
+    Based on my research of the official Anthropic documentation:
+
+    1. Can streaming requests populate the cache?
+
+    Yes, they can. The https://platform.claude.com/docs/en/build-with-claude/prompt-caching does not mention any streaming limitation for cache population. Both streaming and non-streaming requests should be able to create and read from cache.
+
+    2. Can streaming requests capture extended thinking output?
+
+    Yes, they can. The https://platform.claude.com/docs/en/build-with-claude/streaming explicitly shows examples of streaming with extended thinking enabled, receiving thinking_delta events. There's even a section titled "Streaming request with extended thinking."
+
+    3. Is the dual-request behavior by design?
+
+    I cannot find any documentation supporting this. I found no official source stating that Claude Code intentionally sends duplicate requests.
+
+    ---
+    What the Data Actually Shows
+
+    The observed differences may be due to:
+
+    | Streaming Request                     | Non-Streaming Request          |
+    |---------------------------------------|--------------------------------|
+    | Has X-Stainless-Helper-Method: stream | No helper method header        |
+    | Sometimes gets text-only response     | Sometimes gets thinking + text |
+    | Often reads from existing cache       | Often creates ephemeral cache  |
+
+    The X-Stainless-Helper-Method header suggests these requests go through different SDK code paths (the Anthropic SDK uses Stainless internally).
+
+    My earlier hypothesis was wrong. I cannot prove this is intentional client behavior - it could be:
+    - An SDK quirk or bug
+    - A retry/fallback mechanism
+    - Different request handling paths in Claude Code
+    - Something else entirely
+
+    Sources:
+    - https://platform.claude.com/docs/en/build-with-claude/streaming
+    - https://platform.claude.com/docs/en/build-with-claude/extended-thinking
+    - https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+
+### Looking at timing some more
+
+    Claude Code intentionally sends two requests per turn:
+
+      1. Streaming request first (stream=true, max_tokens=32000, no temperature)
+      2. Non-streaming request ~10ms later (stream absent, max_tokens=21333, temperature=1)
+
+      Both requests have identical message content - the non-streaming request does NOT include the streaming response. The only differences are API parameters.
+
+      This is by design in Claude Code, not a proxy bug. Both requests consume API tokens.
+
+### Final Analysis After Fix
+
+    The Problem
+
+      Claude Code was sending duplicate requests - first streaming, then non-streaming - because it would timeout waiting for the first chunk and fallback to non-streaming mode.
+
+      The Root Cause
+
+      The logging middleware's responseWriter wrapper didn't implement http.Flusher.
+
+      // Before - Flush() calls were silently failing
+      type responseWriter struct {
+          http.ResponseWriter
+          statusCode int
+      }
+      // No Flush method = type assertion w.(http.Flusher) returned false
+
+      When the handler called w.(http.Flusher).Flush(), the type assertion failed silently (using the ok pattern), so no data was ever flushed to the network. Claude Code received the HTTP headers but then timed out waiting for the first SSE chunk.
+
+      The Fix
+
+      Added Flush() method to the middleware's responseWriter:
+
+      func (rw *responseWriter) Flush() {
+          if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+              f.Flush()
+          }
+      }
+
+      Additional Fixes Applied
+
+      1. Early header flush - Send SSE headers to client before waiting for Anthropic's response
+      2. Proper SSE forwarding - Forward all lines (including event: lines and empty delimiters), not just data: lines
+      3. Removed CORS wrapper - Eliminated potential buffering from gorilla/handlers
+
+      The Double Requests That Remain
+
+      The remaining double requests are intentional Claude Code behavior (not a bug):
+      - Haiku request for topic detection
+      - Opus request for main response
+      - Sometimes an additional request after completion (purpose unknown - possibly analytics)
+
+## Prompt Caching docs
+
+* https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+
 ## Related: stop_reason Behavior
 
 ### GitHub Issue #12303
