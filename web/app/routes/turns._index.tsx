@@ -26,6 +26,7 @@ interface Turn {
   requestBytes: number;
   responseRole: string | null;
   responseSignature: string | null;
+  responseMessageId: number | null;
   responseBytes: number;
   streaming: boolean | null;
   stopReason: string | null;
@@ -224,8 +225,8 @@ function MessagePopup({ messageId, position, onClose }: {
     <div
       className="fixed z-50 bg-white shadow-lg rounded-lg p-4 border border-gray-200"
       style={{
-        left: Math.min(position.x, window.innerWidth - 550),
-        top: Math.min(position.y + 20, window.innerHeight - 400),
+        left: Math.min(position.x - 20, window.innerWidth - 550),
+        top: Math.min(position.y + 5, window.innerHeight - 400),
         maxWidth: showFull ? '80vw' : '32rem',
         maxHeight: showFull ? '80vh' : '24rem'
       }}
@@ -822,7 +823,11 @@ export default function TurnsIndex() {
                       >
                         {turn.responseRole || '-'}
                       </td>
-                      <td className="px-3 py-2 text-green-500 max-w-[120px] truncate" title={turn.responseSignature || undefined}>
+                      <td
+                        className={`px-3 py-2 text-green-500 max-w-[120px] truncate ${turn.responseMessageId ? 'cursor-pointer hover:bg-green-50 underline' : ''}`}
+                        title={turn.responseSignature || undefined}
+                        onMouseEnter={(e) => turn.responseMessageId && handleMessageHover(turn.responseMessageId, e)}
+                      >
                         {turn.responseSignature || '-'}
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-green-600">

@@ -1269,6 +1269,7 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 			COALESCE(u.request_bytes, 0) as request_bytes,
 			rcs.response_role,
 			rcs.response_signature,
+			rcs.response_message_id,
 			COALESCE(u.response_bytes, 0) as response_bytes,
 			COALESCE(u.input_tokens, 0) + COALESCE(u.cache_creation_input_tokens, 0) as input_tokens,
 			COALESCE(u.output_tokens, 0) as output_tokens,
@@ -1310,7 +1311,7 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 	var turns []model.TurnSummary
 	for rows.Next() {
 		var t model.TurnSummary
-		var streaming sql.NullInt64
+		var streaming, responseMessageID sql.NullInt64
 		var stopReason, requestRole, requestSignature, responseRole, responseSignature sql.NullString
 
 		err := rows.Scan(
@@ -1328,6 +1329,7 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 			&t.RequestBytes,
 			&responseRole,
 			&responseSignature,
+			&responseMessageID,
 			&t.ResponseBytes,
 			&t.InputTokens,
 			&t.OutputTokens,
@@ -1361,6 +1363,9 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 		}
 		if responseSignature.Valid {
 			t.ResponseSignature = &responseSignature.String
+		}
+		if responseMessageID.Valid {
+			t.ResponseMessageID = &responseMessageID.Int64
 		}
 
 		turns = append(turns, t)
