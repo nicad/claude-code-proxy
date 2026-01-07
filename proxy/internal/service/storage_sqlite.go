@@ -1281,7 +1281,14 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 				WHEN mc.role = 'user' AND mc.signature = 'text' AND COALESCE(json_array_length(r.body, '$.tools'), 0) > 0 THEN 'Prompt'
 				WHEN mc.role = 'user' AND mc.signature = 'text' AND COALESCE(json_array_length(r.body, '$.tools'), 0) = 0 THEN 'Agent'
 				ELSE 'LLM'
-			END as reason
+			END as reason,
+			COALESCE((
+				SELECT SUM(mc2.token_estimate)
+				FROM messages m2
+				JOIN message_content mc2 ON m2.message_id = mc2.id
+				WHERE m2.id = rcs.id AND m2.kind = 0
+			), 0) as context_tokens,
+			COALESCE(mc.token_estimate, 0) as last_msg_tokens
 		FROM requests_context_summary rcs
 		JOIN requests r ON rcs.id = r.id
 		LEFT JOIN message_content mc ON rcs.last_message_id = mc.id
@@ -1325,6 +1332,8 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 			&t.SystemCount,
 			&t.ToolsCount,
 			&t.Reason,
+			&t.ContextTokens,
+			&t.LastMsgTokens,
 		)
 		if err != nil {
 			continue

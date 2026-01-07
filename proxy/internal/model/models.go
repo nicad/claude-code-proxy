@@ -329,6 +329,8 @@ type TurnSummary struct {
 	SystemCount       int     `json:"systemCount"`
 	ToolsCount        int     `json:"toolsCount"`
 	Reason            string  `json:"reason"`
+	ContextTokens     int64   `json:"contextTokens"`
+	LastMsgTokens     int64   `json:"lastMsgTokens"`
 }
 
 // MessageContentRecord represents a message stored in the message_content table

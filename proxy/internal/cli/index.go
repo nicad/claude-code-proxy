@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/tiktoken-go/tokenizer"
 )
 
 type IndexMessagesOptions struct {
@@ -235,13 +236,14 @@ func CreateMessagesTable(db *sql.DB, forceRecreate bool) error {
 
 	schema := `
 	CREATE TABLE IF NOT EXISTS message_content (
-		id           INTEGER PRIMARY KEY,
-		message_hash TEXT NOT NULL UNIQUE,
-		role         TEXT NOT NULL,
-		signature    TEXT NOT NULL,
-		content      TEXT NOT NULL,
-		created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		created_by   TEXT NOT NULL
+		id             INTEGER PRIMARY KEY,
+		message_hash   TEXT NOT NULL UNIQUE,
+		role           TEXT NOT NULL,
+		signature      TEXT NOT NULL,
+		content        TEXT NOT NULL,
+		token_estimate INTEGER NOT NULL DEFAULT 0,
+		created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_by     TEXT NOT NULL
 	);
 	-- CREATE INDEX IF NOT EXISTS idx_message_content_hash ON message_content(message_hash);
 
@@ -477,8 +479,8 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 	defer lookupStmt.Close()
 
 	insertContentStmt, err := tx.Prepare(`
-		INSERT INTO message_content (message_hash, role, signature, content, created_by)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO message_content (message_hash, role, signature, content, token_estimate, created_by)
+		VALUES (?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`)
 	if err != nil {
@@ -519,7 +521,8 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 		if err == sql.ErrNoRows {
 			// Need to insert new content
 			signature := computeSignature(msg.Content)
-			err = insertContentStmt.QueryRow(messageHash, msg.Role, signature, string(normalizedMsg), requestID).Scan(&messageID)
+			tokenEstimate := estimateTokens(normalizedMsg)
+			err = insertContentStmt.QueryRow(messageHash, msg.Role, signature, string(normalizedMsg), tokenEstimate, requestID).Scan(&messageID)
 			if err != nil {
 				return fmt.Errorf("failed to insert message_content: %w", err)
 			}
@@ -617,4 +620,51 @@ func computeSignature(content json.RawMessage) string {
 	}
 
 	return ""
+}
+
+// estimateTokens counts tokens in message content blocks using tiktoken cl100k_base encoding
+func estimateTokens(normalizedMsg json.RawMessage) int {
+	enc, err := tokenizer.Get(tokenizer.Cl100kBase)
+	if err != nil {
+		return 0
+	}
+
+	var msg struct {
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(normalizedMsg, &msg); err != nil {
+		return 0
+	}
+
+	// Try to parse content as array of blocks
+	var blocks []map[string]interface{}
+	if err := json.Unmarshal(msg.Content, &blocks); err != nil {
+		// Try as string
+		var text string
+		if err := json.Unmarshal(msg.Content, &text); err == nil {
+			ids, _, _ := enc.Encode(text)
+			return len(ids)
+		}
+		return 0
+	}
+
+	total := 0
+	for _, block := range blocks {
+		// Count tokens from text fields in content blocks
+		for key, val := range block {
+			switch key {
+			case "text", "thinking", "content": // text blocks, thinking blocks, tool_result content
+				if s, ok := val.(string); ok {
+					ids, _, _ := enc.Encode(s)
+					total += len(ids)
+				}
+			case "input": // tool_use input - serialize and count
+				if inputBytes, err := json.Marshal(val); err == nil {
+					ids, _, _ := enc.Encode(string(inputBytes))
+					total += len(ids)
+				}
+			}
+		}
+	}
+	return total
 }
