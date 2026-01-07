@@ -769,7 +769,8 @@ func extractNonStreamingResponse(body json.RawMessage) json.RawMessage {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil
 	}
-	if resp.Role == "" || len(resp.Content) == 0 {
+	if resp.Role == "" || len(resp.Content) == 0 ||
+		string(resp.Content) == "null" || string(resp.Content) == "[]" {
 		return nil
 	}
 
