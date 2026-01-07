@@ -324,13 +324,15 @@ type TurnSummary struct {
 	ResponseBytes     int64   `json:"responseBytes"`
 	Streaming         *bool   `json:"streaming"`
 	StopReason        *string `json:"stopReason"`
-	TotalTokens       int64   `json:"totalTokens"`
+	InputTokens       int64   `json:"inputTokens"`
+	OutputTokens      int64   `json:"outputTokens"`
 	CacheReads        int64   `json:"cacheReads"`
 	SystemCount       int     `json:"systemCount"`
 	ToolsCount        int     `json:"toolsCount"`
 	Reason            string  `json:"reason"`
 	ContextTokens     int64   `json:"contextTokens"`
 	LastMsgTokens     int64   `json:"lastMsgTokens"`
+	ResponseTokens    int64   `json:"responseTokens"`
 }
 
 // MessageContentRecord represents a message stored in the message_content table

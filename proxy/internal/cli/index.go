@@ -261,18 +261,21 @@ func CreateMessagesTable(db *sql.DB, forceRecreate bool) error {
 
 	-- TODO: move some of it into the requests table ?
 	CREATE TABLE IF NOT EXISTS requests_context (
-		id                 VARCHAR NOT NULL PRIMARY KEY,
-		timestamp          TIMESTAMP NOT NULL,
-		last_message_id    INTEGER NOT NULL,
-		context            TEXT NOT NULL,
-		new_context        TEXT NOT NULL,
-		context_msg_count  INTEGER NOT NULL,
-		status_code        INTEGER,
-		streaming          INTEGER,
-		stop_reason        TEXT,
-		response_id        TEXT,
-		response_role      TEXT,
-		response_signature TEXT
+		id                  VARCHAR NOT NULL PRIMARY KEY,
+		timestamp           TIMESTAMP NOT NULL,
+		last_message_id     INTEGER NOT NULL,
+		context             TEXT NOT NULL,
+		new_context         TEXT NOT NULL,
+		context_msg_count   INTEGER NOT NULL,
+		status_code         INTEGER,
+		streaming           INTEGER,
+		stop_reason         TEXT,
+		response_id         TEXT,
+		response_role       TEXT,
+		response_signature  TEXT,
+		response_message_id INTEGER,
+		system_tokens       INTEGER NOT NULL DEFAULT 0,
+		tools_tokens        INTEGER NOT NULL DEFAULT 0
 	);
 	CREATE INDEX IF NOT EXISTS idx_requests_context_ts ON requests_context(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_requests_context_last_msg ON requests_context(last_message_id);
@@ -318,7 +321,10 @@ func CreateMessagesTable(db *sql.DB, forceRecreate bool) error {
 		stop_reason,
 		response_id,
 		response_role,
-		response_signature
+		response_signature,
+		response_message_id,
+		system_tokens,
+		tools_tokens
 	FROM parsed;
 	`
 
@@ -455,6 +461,8 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 
 	var request struct {
 		Messages []json.RawMessage `json:"messages"`
+		System   json.RawMessage   `json:"system"`
+		Tools    json.RawMessage   `json:"tools"`
 	}
 
 	if err := json.Unmarshal([]byte(body), &request); err != nil {
@@ -464,6 +472,10 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 	if len(request.Messages) == 0 {
 		return nil
 	}
+
+	// Estimate tokens for system prompts and tools
+	systemTokens := estimateSystemTokens(request.System)
+	toolsTokens := estimateToolsTokens(request.Tools)
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -554,10 +566,63 @@ func InsertMessageRows(db *sql.DB, requestID string) error {
 	}
 	newContext := strings.Join(contextIDs, ",")
 
+	// Create message_content record for response
+	var responseMessageID *int64
+	if responseJSON.Valid {
+		var responseMsg json.RawMessage
+
+		// Try non-streaming first (has body.content)
+		var resp struct {
+			Body json.RawMessage `json:"body"`
+		}
+		if err := json.Unmarshal([]byte(responseJSON.String), &resp); err == nil && len(resp.Body) > 0 {
+			responseMsg = extractNonStreamingResponse(resp.Body)
+		}
+
+		// Try streaming if non-streaming didn't work
+		if responseMsg == nil {
+			var respWithChunks struct {
+				StreamingChunks []string `json:"streamingChunks"`
+			}
+			if err := json.Unmarshal([]byte(responseJSON.String), &respWithChunks); err == nil && len(respWithChunks.StreamingChunks) > 0 {
+				responseMsg = reconstructStreamingResponse(respWithChunks.StreamingChunks)
+			}
+		}
+
+		// If we have response content, create message_content record
+		if responseMsg != nil && len(responseMsg) > 0 {
+			// Parse to get role and compute signature
+			var respMsgParsed struct {
+				Role    string          `json:"role"`
+				Content json.RawMessage `json:"content"`
+			}
+			if err := json.Unmarshal(responseMsg, &respMsgParsed); err == nil {
+				normalizedResp := normalizeMessage(responseMsg)
+				respHash := sha256Hash(normalizedResp)
+
+				var respMsgID int64
+				err := lookupStmt.QueryRow(respHash).Scan(&respMsgID)
+				if err == sql.ErrNoRows {
+					respSignature := computeSignature(respMsgParsed.Content)
+					respTokenEstimate := estimateTokens(normalizedResp)
+					err = insertContentStmt.QueryRow(respHash, respMsgParsed.Role, respSignature, string(normalizedResp), respTokenEstimate, requestID).Scan(&respMsgID)
+					if err != nil {
+						// Log but don't fail - response is optional
+						fmt.Fprintf(os.Stderr, "Warning: failed to insert response message_content: %v\n", err)
+					} else {
+						responseMessageID = &respMsgID
+					}
+				} else if err == nil {
+					responseMessageID = &respMsgID
+				}
+			}
+		}
+	}
+
 	_, err = tx.Exec(`
-		INSERT INTO requests_context (id, timestamp, last_message_id, context, new_context, context_msg_count, status_code, streaming, stop_reason, response_id, response_role, response_signature)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, requestID, timestamp, lastMessageID, context, newContext, contextMsgCount, statusCode, streaming, stopReason, responseID, responseRole, responseSignature)
+		INSERT INTO requests_context (id, timestamp, last_message_id, context, new_context, context_msg_count, status_code, streaming, stop_reason, response_id, response_role, response_signature, response_message_id, system_tokens, tools_tokens)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, requestID, timestamp, lastMessageID, context, newContext, contextMsgCount, statusCode, streaming, stopReason, responseID, responseRole, responseSignature, responseMessageID, systemTokens, toolsTokens)
 	if err != nil {
 		return fmt.Errorf("failed to insert requests_context: %w", err)
 	}
@@ -597,6 +662,124 @@ func parseStreamingChunks(chunks []string) (contentTypes []string, stopReason st
 		}
 	}
 	return
+}
+
+// reconstructStreamingResponse builds response message content from SSE streaming chunks
+func reconstructStreamingResponse(chunks []string) json.RawMessage {
+	// Track content blocks by index
+	type contentBlock struct {
+		Type     string
+		Text     string // for text blocks
+		Thinking string // for thinking blocks
+		Input    string // for tool_use input (accumulated JSON string)
+		ID       string // for tool_use
+		Name     string // for tool_use
+	}
+	var blocks []contentBlock
+
+	for _, chunk := range chunks {
+		data := strings.TrimPrefix(chunk, "data: ")
+		var event map[string]interface{}
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			continue
+		}
+
+		eventType, _ := event["type"].(string)
+		switch eventType {
+		case "content_block_start":
+			idx, _ := event["index"].(float64)
+			// Ensure blocks slice is large enough
+			for len(blocks) <= int(idx) {
+				blocks = append(blocks, contentBlock{})
+			}
+			if cb, ok := event["content_block"].(map[string]interface{}); ok {
+				blocks[int(idx)].Type, _ = cb["type"].(string)
+				blocks[int(idx)].ID, _ = cb["id"].(string)
+				blocks[int(idx)].Name, _ = cb["name"].(string)
+				// Initial values if present
+				if text, ok := cb["text"].(string); ok {
+					blocks[int(idx)].Text = text
+				}
+				if thinking, ok := cb["thinking"].(string); ok {
+					blocks[int(idx)].Thinking = thinking
+				}
+			}
+		case "content_block_delta":
+			idx, _ := event["index"].(float64)
+			if int(idx) < len(blocks) {
+				if delta, ok := event["delta"].(map[string]interface{}); ok {
+					deltaType, _ := delta["type"].(string)
+					switch deltaType {
+					case "text_delta":
+						if text, ok := delta["text"].(string); ok {
+							blocks[int(idx)].Text += text
+						}
+					case "thinking_delta":
+						if thinking, ok := delta["thinking"].(string); ok {
+							blocks[int(idx)].Thinking += thinking
+						}
+					case "input_json_delta":
+						if partialJSON, ok := delta["partial_json"].(string); ok {
+							blocks[int(idx)].Input += partialJSON
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Build content array
+	var content []map[string]interface{}
+	for _, block := range blocks {
+		cb := map[string]interface{}{"type": block.Type}
+		switch block.Type {
+		case "text":
+			cb["text"] = block.Text
+		case "thinking":
+			cb["thinking"] = block.Thinking
+		case "tool_use":
+			cb["id"] = block.ID
+			cb["name"] = block.Name
+			// Parse accumulated JSON string into proper object
+			var input interface{}
+			if err := json.Unmarshal([]byte(block.Input), &input); err == nil {
+				cb["input"] = input
+			} else {
+				cb["input"] = block.Input // fallback to string
+			}
+		}
+		content = append(content, cb)
+	}
+
+	// Build message
+	msg := map[string]interface{}{
+		"role":    "assistant",
+		"content": content,
+	}
+	result, _ := json.Marshal(msg)
+	return result
+}
+
+// extractNonStreamingResponse extracts response content from non-streaming response body
+func extractNonStreamingResponse(body json.RawMessage) json.RawMessage {
+	var resp struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil
+	}
+	if resp.Role == "" || len(resp.Content) == 0 {
+		return nil
+	}
+
+	// Build message in same format as request messages
+	msg := map[string]interface{}{
+		"role":    resp.Role,
+		"content": json.RawMessage(resp.Content),
+	}
+	result, _ := json.Marshal(msg)
+	return result
 }
 
 // computeSignature extracts content types and joins them with ","
@@ -667,4 +850,53 @@ func estimateTokens(normalizedMsg json.RawMessage) int {
 		}
 	}
 	return total
+}
+
+// estimateSystemTokens counts tokens in system prompts
+func estimateSystemTokens(systemRaw json.RawMessage) int {
+	if len(systemRaw) == 0 {
+		return 0
+	}
+
+	enc, err := tokenizer.Get(tokenizer.Cl100kBase)
+	if err != nil {
+		return 0
+	}
+
+	// System can be a string or array of objects with text field
+	var systemStr string
+	if err := json.Unmarshal(systemRaw, &systemStr); err == nil {
+		ids, _, _ := enc.Encode(systemStr)
+		return len(ids)
+	}
+
+	var systemArr []struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(systemRaw, &systemArr); err == nil {
+		total := 0
+		for _, s := range systemArr {
+			ids, _, _ := enc.Encode(s.Text)
+			total += len(ids)
+		}
+		return total
+	}
+
+	return 0
+}
+
+// estimateToolsTokens counts tokens in tools definitions
+func estimateToolsTokens(toolsRaw json.RawMessage) int {
+	if len(toolsRaw) == 0 {
+		return 0
+	}
+
+	enc, err := tokenizer.Get(tokenizer.Cl100kBase)
+	if err != nil {
+		return 0
+	}
+
+	// Serialize the entire tools array and count tokens
+	ids, _, _ := enc.Encode(string(toolsRaw))
+	return len(ids)
 }

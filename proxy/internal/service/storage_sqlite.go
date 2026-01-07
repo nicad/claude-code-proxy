@@ -1270,8 +1270,8 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 			rcs.response_role,
 			rcs.response_signature,
 			COALESCE(u.response_bytes, 0) as response_bytes,
-			COALESCE(u.input_tokens, 0) + COALESCE(u.output_tokens, 0) +
-				COALESCE(u.cache_creation_input_tokens, 0) as total_tokens,
+			COALESCE(u.input_tokens, 0) + COALESCE(u.cache_creation_input_tokens, 0) as input_tokens,
+			COALESCE(u.output_tokens, 0) as output_tokens,
 			COALESCE(u.cache_read_input_tokens, 0) as cache_reads,
 			COALESCE(json_array_length(r.body, '$.system'), 0) as system_count,
 			COALESCE(json_array_length(r.body, '$.tools'), 0) as tools_count,
@@ -1287,11 +1287,13 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 				FROM messages m2
 				JOIN message_content mc2 ON m2.message_id = mc2.id
 				WHERE m2.id = rcs.id AND m2.kind = 0
-			), 0) as context_tokens,
-			COALESCE(mc.token_estimate, 0) as last_msg_tokens
+			), 0) + COALESCE(rcs.system_tokens, 0) + COALESCE(rcs.tools_tokens, 0) as context_tokens,
+			COALESCE(mc.token_estimate, 0) as last_msg_tokens,
+			COALESCE(resp_mc.token_estimate, 0) as response_tokens
 		FROM requests_context_summary rcs
 		JOIN requests r ON rcs.id = r.id
 		LEFT JOIN message_content mc ON rcs.last_message_id = mc.id
+		LEFT JOIN message_content resp_mc ON rcs.response_message_id = resp_mc.id
 		LEFT JOIN usage u ON rcs.id = u.id
 		WHERE datetime(rcs.timestamp) >= datetime(?)
 		  AND datetime(rcs.timestamp) <= datetime(?)
@@ -1327,13 +1329,15 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 			&responseRole,
 			&responseSignature,
 			&t.ResponseBytes,
-			&t.TotalTokens,
+			&t.InputTokens,
+			&t.OutputTokens,
 			&t.CacheReads,
 			&t.SystemCount,
 			&t.ToolsCount,
 			&t.Reason,
 			&t.ContextTokens,
 			&t.LastMsgTokens,
+			&t.ResponseTokens,
 		)
 		if err != nil {
 			continue

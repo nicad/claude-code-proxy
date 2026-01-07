@@ -29,11 +29,15 @@ interface Turn {
   responseBytes: number;
   streaming: boolean | null;
   stopReason: string | null;
-  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
   cacheReads: number;
   systemCount: number;
   toolsCount: number;
   reason: string;
+  contextTokens: number;
+  lastMsgTokens: number;
+  responseTokens: number;
 }
 
 interface MessageContent {
@@ -719,7 +723,8 @@ export default function TurnsIndex() {
                   <tr className="border-b border-gray-300">
                     <th colSpan={7} className="px-3 py-1"></th>
                     <th colSpan={5} className="px-3 py-1 text-center text-xs font-semibold text-amber-700 bg-amber-50 border-l border-gray-300">Request</th>
-                    <th colSpan={4} className="px-3 py-1 text-center text-xs font-semibold text-green-700 bg-green-50 border-l border-gray-300">Response</th>
+                    <th colSpan={5} className="px-3 py-1 text-center text-xs font-semibold text-green-700 bg-green-50 border-l border-gray-300">Response</th>
+                    <th colSpan={3} className="px-3 py-1 text-center text-xs font-semibold text-blue-700 bg-blue-50 border-l border-gray-300">Est. Tokens</th>
                     <th colSpan={3} className="px-3 py-1 border-l border-gray-300"></th>
                   </tr>
                   <tr>
@@ -740,7 +745,11 @@ export default function TurnsIndex() {
                     <th className="px-3 py-2 text-right font-medium text-gray-700">Size</th>
                     <th className="px-3 py-2 text-left font-medium text-gray-700">Stop</th>
                     <SortHeader column="streaming" label="Stream" />
-                    <SortHeader column="totalTokens" label="InOut" align="right" />
+                    <th className="px-3 py-2 text-right font-medium text-gray-700 border-l border-gray-300">Context</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-700">Last Msg</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-700">Response</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-700">In</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-700">Out</th>
                     <SortHeader column="cacheReads" label="Cache" align="right" />
                   </tr>
                 </thead>
@@ -822,11 +831,23 @@ export default function TurnsIndex() {
                       <td className="px-3 py-2 text-green-600">
                         {turn.stopReason || '-'}
                       </td>
-                      <td className="px-3 py-2 text-gray-600 border-l border-gray-200">
+                      <td className="px-3 py-2 text-green-600">
                         {turn.streaming === null ? '-' : turn.streaming ? 'yes' : 'no'}
                       </td>
+                      <td className="px-3 py-2 text-right font-mono text-blue-600 border-l border-gray-200">
+                        {formatTokenCount(turn.contextTokens)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-blue-600">
+                        {formatTokenCount(turn.lastMsgTokens)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-blue-600">
+                        {formatTokenCount(turn.responseTokens)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-gray-700 border-l border-gray-200">
+                        {formatTokenCount(turn.inputTokens)}
+                      </td>
                       <td className="px-3 py-2 text-right font-mono text-gray-700">
-                        {formatTokenCount(turn.totalTokens)}
+                        {formatTokenCount(turn.outputTokens)}
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-green-600">
                         {formatTokenCount(turn.cacheReads)}
