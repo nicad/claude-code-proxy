@@ -1289,8 +1289,8 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 				JOIN message_content mc2 ON m2.message_id = mc2.id
 				WHERE m2.id = rcs.id AND m2.kind = 0
 			), 0) + COALESCE(rcs.system_tokens, 0) + COALESCE(rcs.tools_tokens, 0) as context_tokens,
-			COALESCE(mc.token_estimate, 0) as last_msg_tokens,
-			COALESCE(resp_mc.token_estimate, 0) as response_tokens
+			COALESCE(mc.token_estimate + 100, 0) as last_msg_tokens,
+			COALESCE(resp_mc.token_estimate + 100, 0) as response_tokens
 		FROM requests_context_summary rcs
 		JOIN requests r ON rcs.id = r.id
 		LEFT JOIN message_content mc ON rcs.last_message_id = mc.id

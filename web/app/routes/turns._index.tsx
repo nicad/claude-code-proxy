@@ -1,7 +1,7 @@
 import type { MetaFunction } from "@remix-run/node";
 import { Link, useSearchParams } from "@remix-run/react";
-import { useState, useEffect, useCallback } from "react";
-import { Loader2, Plus } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Loader2, Plus, BarChart2, X, ZoomIn, ZoomOut, Move } from "lucide-react";
 
 import { Layout } from "../components/Layout";
 import { escapeHtml } from "../utils/formatters";
@@ -502,6 +502,465 @@ function ResponseBodyPopup({ requestId, position, onClose }: {
   );
 }
 
+// Chart data types
+interface ChartDataPoint {
+  timestamp: string;
+  estimated: number;
+  actual: number;
+}
+
+// Comparison line chart component (small, clickable)
+function ComparisonLineChart({
+  data,
+  title,
+  estimatedLabel,
+  actualLabel,
+  onClick,
+}: {
+  data: ChartDataPoint[];
+  title: string;
+  estimatedLabel: string;
+  actualLabel: string;
+  onClick?: () => void;
+}) {
+  if (data.length === 0) return null;
+
+  const estimatedValues = data.map(d => d.estimated);
+  const actualValues = data.map(d => d.actual);
+  const allValues = [...estimatedValues, ...actualValues];
+  const maxValue = Math.max(...allValues, 1);
+
+  // Y-axis ticks
+  const yTicks = [
+    { value: maxValue, pos: 5 },
+    { value: Math.round(maxValue / 2), pos: 50 },
+    { value: 0, pos: 95 },
+  ];
+
+  // Generate SVG path for line
+  const generatePath = (values: number[]) => {
+    if (values.length === 0) return '';
+    return values.map((v, i) => {
+      const x = (i / Math.max(values.length - 1, 1)) * 980 + 10;
+      const y = 5 + (1 - v / maxValue) * 90;
+      return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+    }).join(' ');
+  };
+
+  // Calculate accuracy stats
+  const totalEstimated = estimatedValues.reduce((a, b) => a + b, 0);
+  const totalActual = actualValues.reduce((a, b) => a + b, 0);
+  const accuracy = totalActual > 0 ? (totalEstimated / totalActual) * 100 : 0;
+
+  return (
+    <div
+      className={`bg-gray-50 rounded-lg p-3 ${onClick ? 'cursor-pointer hover:bg-gray-100 transition-colors' : ''}`}
+      onClick={onClick}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-xs font-semibold text-gray-700">{title}</h4>
+        <div className="flex items-center gap-3 text-[10px]">
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-0.5 bg-blue-500" />
+            {estimatedLabel}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-0.5 bg-green-500" />
+            {actualLabel}
+          </span>
+        </div>
+      </div>
+      <div className="flex">
+        {/* Y-axis labels */}
+        <div className="w-10 flex-shrink-0 relative h-24">
+          {yTicks.map((tick) => (
+            <span
+              key={tick.value}
+              className="absolute right-1 text-[9px] text-gray-400 transform -translate-y-1/2"
+              style={{ top: `${tick.pos}%` }}
+            >
+              {formatTokenCount(tick.value)}
+            </span>
+          ))}
+        </div>
+        {/* Chart area */}
+        <div className="flex-1">
+          <svg width="100%" height="96" viewBox="0 0 1000 100" preserveAspectRatio="none">
+            {/* Grid lines */}
+            <line x1="10" y1="5" x2="990" y2="5" stroke="#e5e7eb" strokeWidth="0.5" />
+            <line x1="10" y1="50" x2="990" y2="50" stroke="#e5e7eb" strokeWidth="0.5" strokeDasharray="4" />
+            <line x1="10" y1="95" x2="990" y2="95" stroke="#e5e7eb" strokeWidth="0.5" />
+            {/* Estimated line (blue) */}
+            <path
+              d={generatePath(estimatedValues)}
+              fill="none"
+              stroke="#3b82f6"
+              strokeWidth="1"
+              vectorEffect="non-scaling-stroke"
+            />
+            {/* Actual line (green) */}
+            <path
+              d={generatePath(actualValues)}
+              fill="none"
+              stroke="#10b981"
+              strokeWidth="1"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        </div>
+      </div>
+      {/* Stats */}
+      <div className="mt-2 pt-2 border-t border-gray-200 flex justify-between text-[10px] text-gray-500">
+        <span>Est: {formatTokenCount(totalEstimated)} | Act: {formatTokenCount(totalActual)}</span>
+        <span className={accuracy > 110 ? 'text-red-500' : accuracy < 90 ? 'text-amber-500' : 'text-green-600'}>
+          Accuracy: {accuracy.toFixed(1)}%
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Expanded chart modal with zoom, pan, and hover
+function ExpandedChartModal({
+  data,
+  title,
+  estimatedLabel,
+  actualLabel,
+  onClose,
+}: {
+  data: ChartDataPoint[];
+  title: string;
+  estimatedLabel: string;
+  actualLabel: string;
+  onClose: () => void;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  const estimatedValues = data.map(d => d.estimated);
+  const actualValues = data.map(d => d.actual);
+  const allValues = [...estimatedValues, ...actualValues];
+  const maxValue = Math.max(...allValues, 1);
+
+  // Chart dimensions
+  const width = 1000;
+  const height = 400;
+  const padding = { top: 20, right: 20, bottom: 40, left: 60 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  // Generate path
+  const generatePath = (values: number[]) => {
+    if (values.length === 0) return '';
+    return values.map((v, i) => {
+      const x = padding.left + (i / Math.max(values.length - 1, 1)) * chartWidth;
+      const y = padding.top + (1 - v / maxValue) * chartHeight;
+      return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+    }).join(' ');
+  };
+
+  // Y-axis ticks
+  const yTickCount = 5;
+  const yTicks = Array.from({ length: yTickCount + 1 }, (_, i) => {
+    const value = (maxValue / yTickCount) * (yTickCount - i);
+    const y = padding.top + (i / yTickCount) * chartHeight;
+    return { value: Math.round(value), y };
+  });
+
+  // X-axis ticks (show ~10 timestamps)
+  const xTickInterval = Math.max(1, Math.floor(data.length / 10));
+  const xTicks = data.filter((_, i) => i % xTickInterval === 0).map((d, idx) => {
+    const i = idx * xTickInterval;
+    const x = padding.left + (i / Math.max(data.length - 1, 1)) * chartWidth;
+    const date = new Date(d.timestamp);
+    const label = `${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+    return { x, label };
+  });
+
+  // Mouse handlers
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom(z => Math.max(0.5, Math.min(10, z * delta)));
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging) {
+      setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+    } else if (svgRef.current) {
+      // Calculate hover index
+      const rect = svgRef.current.getBoundingClientRect();
+      const svgX = (e.clientX - rect.left) / rect.width * width;
+      const relX = (svgX - padding.left) / chartWidth;
+      const idx = Math.round(relX * (data.length - 1));
+      if (idx >= 0 && idx < data.length) {
+        setHoverIndex(idx);
+      } else {
+        setHoverIndex(null);
+      }
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleMouseLeave = () => {
+    setIsDragging(false);
+    setHoverIndex(null);
+  };
+
+  // Get hover position
+  const getHoverX = () => {
+    if (hoverIndex === null) return 0;
+    return padding.left + (hoverIndex / Math.max(data.length - 1, 1)) * chartWidth;
+  };
+
+  // Keyboard handler for escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg w-full h-full max-w-[95vw] max-h-[95vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+          <div className="flex items-center gap-4">
+            <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
+            <div className="flex items-center gap-4 text-sm">
+              <span className="flex items-center gap-1">
+                <span className="w-4 h-1 bg-blue-500 rounded" />
+                {estimatedLabel}
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-4 h-1 bg-green-500 rounded" />
+                {actualLabel}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 mr-2">
+              <Move className="w-3 h-3 inline mr-1" />
+              Drag to pan, scroll to zoom
+            </span>
+            <button
+              onClick={() => setZoom(z => Math.min(10, z * 1.2))}
+              className="p-1.5 rounded hover:bg-gray-100"
+              title="Zoom in"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setZoom(z => Math.max(0.5, z / 1.2))}
+              className="p-1.5 rounded hover:bg-gray-100"
+              title="Zoom out"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
+              className="px-2 py-1 text-xs rounded hover:bg-gray-100"
+            >
+              Reset
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded hover:bg-gray-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Chart area */}
+        <div className="flex-1 p-4 overflow-hidden">
+          <div
+            className="w-full h-full overflow-hidden"
+            style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+          >
+            <svg
+              ref={svgRef}
+              width="100%"
+              height="100%"
+              viewBox={`0 0 ${width} ${height}`}
+              preserveAspectRatio="xMidYMid meet"
+              onWheel={handleWheel}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseLeave}
+              style={{
+                transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+                transformOrigin: 'center center',
+              }}
+            >
+              {/* Background */}
+              <rect x="0" y="0" width={width} height={height} fill="white" />
+
+              {/* Grid lines */}
+              {yTicks.map((tick, i) => (
+                <line
+                  key={i}
+                  x1={padding.left}
+                  y1={tick.y}
+                  x2={width - padding.right}
+                  y2={tick.y}
+                  stroke="#e5e7eb"
+                  strokeWidth="1"
+                  strokeDasharray={i === yTicks.length - 1 ? undefined : '4'}
+                />
+              ))}
+
+              {/* Y-axis labels */}
+              {yTicks.map((tick, i) => (
+                <text
+                  key={i}
+                  x={padding.left - 10}
+                  y={tick.y + 4}
+                  textAnchor="end"
+                  className="text-xs fill-gray-500"
+                  style={{ fontSize: '12px' }}
+                >
+                  {formatTokenCount(tick.value)}
+                </text>
+              ))}
+
+              {/* X-axis labels */}
+              {xTicks.map((tick, i) => (
+                <text
+                  key={i}
+                  x={tick.x}
+                  y={height - padding.bottom + 20}
+                  textAnchor="middle"
+                  className="text-xs fill-gray-500"
+                  style={{ fontSize: '10px' }}
+                >
+                  {tick.label}
+                </text>
+              ))}
+
+              {/* Estimated line (blue) */}
+              <path
+                d={generatePath(estimatedValues)}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth="1.5"
+              />
+
+              {/* Actual line (green) */}
+              <path
+                d={generatePath(actualValues)}
+                fill="none"
+                stroke="#10b981"
+                strokeWidth="1.5"
+              />
+
+              {/* Hover crosshair and tooltip */}
+              {hoverIndex !== null && (
+                <>
+                  {/* Vertical line */}
+                  <line
+                    x1={getHoverX()}
+                    y1={padding.top}
+                    x2={getHoverX()}
+                    y2={height - padding.bottom}
+                    stroke="#6b7280"
+                    strokeWidth="1"
+                    strokeDasharray="4"
+                  />
+
+                  {/* Dots on lines */}
+                  <circle
+                    cx={getHoverX()}
+                    cy={padding.top + (1 - estimatedValues[hoverIndex] / maxValue) * chartHeight}
+                    r="5"
+                    fill="#3b82f6"
+                    stroke="white"
+                    strokeWidth="2"
+                  />
+                  <circle
+                    cx={getHoverX()}
+                    cy={padding.top + (1 - actualValues[hoverIndex] / maxValue) * chartHeight}
+                    r="5"
+                    fill="#10b981"
+                    stroke="white"
+                    strokeWidth="2"
+                  />
+
+                  {/* Tooltip */}
+                  <g transform={`translate(${Math.min(getHoverX() + 10, width - 180)}, ${padding.top + 10})`}>
+                    <rect
+                      x="0"
+                      y="0"
+                      width="170"
+                      height="80"
+                      fill="white"
+                      stroke="#e5e7eb"
+                      strokeWidth="1"
+                      rx="4"
+                    />
+                    <text x="10" y="20" className="text-xs fill-gray-600" style={{ fontSize: '11px' }}>
+                      {new Date(data[hoverIndex].timestamp).toLocaleString()}
+                    </text>
+                    <text x="10" y="40" style={{ fontSize: '12px' }}>
+                      <tspan fill="#3b82f6">{estimatedLabel}: </tspan>
+                      <tspan fill="#1e40af" fontWeight="600">{estimatedValues[hoverIndex].toLocaleString()}</tspan>
+                    </text>
+                    <text x="10" y="60" style={{ fontSize: '12px' }}>
+                      <tspan fill="#10b981">{actualLabel}: </tspan>
+                      <tspan fill="#047857" fontWeight="600">{actualValues[hoverIndex].toLocaleString()}</tspan>
+                    </text>
+                  </g>
+                </>
+              )}
+            </svg>
+          </div>
+        </div>
+
+        {/* Footer with stats */}
+        <div className="p-3 border-t border-gray-200 bg-gray-50 text-xs text-gray-600 flex gap-6">
+          <span>Data points: {data.length}</span>
+          <span>Zoom: {(zoom * 100).toFixed(0)}%</span>
+          <span>
+            {estimatedLabel}: {formatTokenCount(estimatedValues.reduce((a, b) => a + b, 0))}
+          </span>
+          <span>
+            {actualLabel}: {formatTokenCount(actualValues.reduce((a, b) => a + b, 0))}
+          </span>
+          <span className={
+            (() => {
+              const totalEst = estimatedValues.reduce((a, b) => a + b, 0);
+              const totalAct = actualValues.reduce((a, b) => a + b, 0);
+              const acc = totalAct > 0 ? (totalEst / totalAct) * 100 : 0;
+              return acc > 110 ? 'text-red-500 font-medium' : acc < 90 ? 'text-amber-500 font-medium' : 'text-green-600 font-medium';
+            })()
+          }>
+            Accuracy: {(() => {
+              const totalEst = estimatedValues.reduce((a, b) => a + b, 0);
+              const totalAct = actualValues.reduce((a, b) => a + b, 0);
+              return totalAct > 0 ? ((totalEst / totalAct) * 100).toFixed(1) : '0';
+            })()}%
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TurnsIndex() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -514,6 +973,42 @@ export default function TurnsIndex() {
   const [popup, setPopup] = useState<PopupState | null>(null);
   const [bodyPopup, setBodyPopup] = useState<BodyPopupState | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [showCharts, setShowCharts] = useState(false);
+  const [expandedChart, setExpandedChart] = useState<{
+    data: ChartDataPoint[];
+    title: string;
+    estimatedLabel: string;
+    actualLabel: string;
+  } | null>(null);
+
+  // Prepare chart data from turns
+  const chartData = useMemo(() => {
+    const sorted = [...turns].sort((a, b) =>
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    return {
+      contextVsCache: sorted.map(t => ({
+        timestamp: t.timestamp,
+        estimated: t.contextTokens,
+        actual: t.cacheReads,
+      })),
+      inputComparison: sorted.map(t => ({
+        timestamp: t.timestamp,
+        estimated: t.lastMsgTokens,
+        actual: t.inputTokens,
+      })),
+      outputComparison: sorted.map(t => ({
+        timestamp: t.timestamp,
+        estimated: t.responseTokens,
+        actual: t.outputTokens,
+      })),
+      totalComparison: sorted.map(t => ({
+        timestamp: t.timestamp,
+        estimated: t.contextTokens + t.lastMsgTokens + t.responseTokens,
+        actual: t.inputTokens + t.outputTokens + t.cacheReads,
+      })),
+    };
+  }, [turns]);
 
   const applyRangeFromLatest = useCallback((latest: string, days: number | 'all') => {
     const end = new Date(latest);
@@ -684,6 +1179,17 @@ export default function TurnsIndex() {
             >
               reset
             </button>
+            <button
+              onClick={() => setShowCharts(!showCharts)}
+              className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${
+                showCharts
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              }`}
+            >
+              <BarChart2 className="w-3 h-3" />
+              {showCharts ? 'Hide charts' : 'Show charts'}
+            </button>
           </div>
           {dateRange && (
             <div className="flex items-center space-x-2">
@@ -704,6 +1210,70 @@ export default function TurnsIndex() {
           )}
           <span className="text-sm font-medium text-gray-700">{total} turns</span>
         </div>
+
+        {/* Token comparison charts */}
+        {showCharts && turns.length > 0 && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-700">
+                Token Comparison ({turns.length} turns)
+              </h3>
+              <span className="text-xs text-gray-500">
+                Estimated (blue) vs Actual (green)
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <ComparisonLineChart
+                data={chartData.contextVsCache}
+                title="Context vs Cache Reads"
+                estimatedLabel="contextTokens"
+                actualLabel="cacheReads"
+                onClick={() => setExpandedChart({
+                  data: chartData.contextVsCache,
+                  title: "Context vs Cache Reads",
+                  estimatedLabel: "contextTokens",
+                  actualLabel: "cacheReads",
+                })}
+              />
+              <ComparisonLineChart
+                data={chartData.inputComparison}
+                title="Estimated In vs Input"
+                estimatedLabel="lastMsgTokens"
+                actualLabel="inputTokens"
+                onClick={() => setExpandedChart({
+                  data: chartData.inputComparison,
+                  title: "Estimated In vs Input",
+                  estimatedLabel: "lastMsgTokens",
+                  actualLabel: "inputTokens",
+                })}
+              />
+              <ComparisonLineChart
+                data={chartData.outputComparison}
+                title="Estimated Out vs Output"
+                estimatedLabel="responseTokens"
+                actualLabel="outputTokens"
+                onClick={() => setExpandedChart({
+                  data: chartData.outputComparison,
+                  title: "Estimated Out vs Output",
+                  estimatedLabel: "responseTokens",
+                  actualLabel: "outputTokens",
+                })}
+              />
+              <ComparisonLineChart
+                data={chartData.totalComparison}
+                title="Total Estimated vs Total Tracked"
+                estimatedLabel="est. total"
+                actualLabel="actual total"
+                onClick={() => setExpandedChart({
+                  data: chartData.totalComparison,
+                  title: "Total Estimated vs Total Tracked",
+                  estimatedLabel: "est. total",
+                  actualLabel: "actual total",
+                })}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Turns table */}
         <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -895,6 +1465,17 @@ export default function TurnsIndex() {
               />
             )}
           </>
+        )}
+
+        {/* Expanded chart modal */}
+        {expandedChart && (
+          <ExpandedChartModal
+            data={expandedChart.data}
+            title={expandedChart.title}
+            estimatedLabel={expandedChart.estimatedLabel}
+            actualLabel={expandedChart.actualLabel}
+            onClose={() => setExpandedChart(null)}
+          />
         )}
       </main>
     </Layout>
