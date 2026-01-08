@@ -981,28 +981,32 @@ export default function TurnsIndex() {
     actualLabel: string;
   } | null>(null);
 
-  // Prepare chart data from turns
+  // Prepare chart data from turns (tokens > 200k are set to NULL/0 in SQL)
   const chartData = useMemo(() => {
     const sorted = [...turns].sort((a, b) =>
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
+    // Filter out turns where token values are 0 (NULL from SQL)
+    const validTurns = sorted.filter(t =>
+      t.contextTokens > 0 || t.inputTokens > 0
+    );
     return {
-      contextVsCache: sorted.map(t => ({
+      contextVsCache: validTurns.map(t => ({
         timestamp: t.timestamp,
         estimated: t.contextTokens,
         actual: t.cacheReads,
       })),
-      inputComparison: sorted.map(t => ({
+      inputComparison: validTurns.map(t => ({
         timestamp: t.timestamp,
         estimated: t.lastMsgTokens,
         actual: t.inputTokens,
       })),
-      outputComparison: sorted.map(t => ({
+      outputComparison: validTurns.map(t => ({
         timestamp: t.timestamp,
         estimated: t.responseTokens,
         actual: t.outputTokens,
       })),
-      totalComparison: sorted.map(t => ({
+      totalComparison: validTurns.map(t => ({
         timestamp: t.timestamp,
         estimated: t.contextTokens + t.lastMsgTokens + t.responseTokens,
         actual: t.inputTokens + t.outputTokens + t.cacheReads,
@@ -1216,7 +1220,7 @@ export default function TurnsIndex() {
           <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-700">
-                Token Comparison ({turns.length} turns)
+                Token Comparison ({chartData.contextVsCache.length} turns)
               </h3>
               <span className="text-xs text-gray-500">
                 Estimated (blue) vs Actual (green)

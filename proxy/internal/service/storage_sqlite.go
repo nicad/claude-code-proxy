@@ -1271,9 +1271,18 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 			rcs.response_signature,
 			rcs.response_message_id,
 			COALESCE(u.response_bytes, 0) as response_bytes,
-			COALESCE(u.input_tokens, 0) + COALESCE(u.cache_creation_input_tokens, 0) as input_tokens,
-			COALESCE(u.output_tokens, 0) as output_tokens,
-			COALESCE(u.cache_read_input_tokens, 0) as cache_reads,
+			CASE
+				WHEN COALESCE(u.input_tokens, 0) + COALESCE(u.cache_creation_input_tokens, 0) > 200000 THEN NULL
+				ELSE COALESCE(u.input_tokens, 0) + COALESCE(u.cache_creation_input_tokens, 0)
+			END as input_tokens,
+			CASE
+				WHEN COALESCE(u.input_tokens, 0) + COALESCE(u.cache_creation_input_tokens, 0) > 200000 THEN NULL
+				ELSE COALESCE(u.output_tokens, 0)
+			END as output_tokens,
+			CASE
+				WHEN COALESCE(u.input_tokens, 0) + COALESCE(u.cache_creation_input_tokens, 0) > 200000 THEN NULL
+				ELSE COALESCE(u.cache_read_input_tokens, 0)
+			END as cache_reads,
 			COALESCE(json_array_length(r.body, '$.system'), 0) as system_count,
 			COALESCE(json_array_length(r.body, '$.tools'), 0) as tools_count,
 			CASE
@@ -1283,14 +1292,28 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 				WHEN mc.role = 'user' AND mc.signature = 'text' AND COALESCE(json_array_length(r.body, '$.tools'), 0) = 0 THEN 'Agent'
 				ELSE 'LLM'
 			END as reason,
-			COALESCE((
-				SELECT SUM(mc2.token_estimate)
-				FROM messages m2
-				JOIN message_content mc2 ON m2.message_id = mc2.id
-				WHERE m2.id = rcs.id AND m2.kind = 0
-			), 0) + COALESCE(rcs.system_tokens, 0) + COALESCE(rcs.tools_tokens, 0) as context_tokens,
-			COALESCE(mc.token_estimate + 100, 0) as last_msg_tokens,
-			COALESCE(resp_mc.token_estimate + 100, 0) as response_tokens
+			CASE
+				WHEN (COALESCE((
+					SELECT SUM(mc2.token_estimate)
+					FROM messages m2
+					JOIN message_content mc2 ON m2.message_id = mc2.id
+					WHERE m2.id = rcs.id AND m2.kind = 0
+				), 0) + COALESCE(rcs.system_tokens, 0) + COALESCE(rcs.tools_tokens, 0)) > 200000 THEN NULL
+				ELSE COALESCE((
+					SELECT SUM(mc2.token_estimate)
+					FROM messages m2
+					JOIN message_content mc2 ON m2.message_id = mc2.id
+					WHERE m2.id = rcs.id AND m2.kind = 0
+				), 0) + COALESCE(rcs.system_tokens, 0) + COALESCE(rcs.tools_tokens, 0)
+			END as context_tokens,
+			CASE
+				WHEN COALESCE(mc.token_estimate + 100, 0) > 200000 THEN NULL
+				ELSE COALESCE(mc.token_estimate + 100, 0)
+			END as last_msg_tokens,
+			CASE
+				WHEN COALESCE(resp_mc.token_estimate + 100, 0) > 200000 THEN NULL
+				ELSE COALESCE(resp_mc.token_estimate + 100, 0)
+			END as response_tokens
 		FROM requests_context_summary rcs
 		JOIN requests r ON rcs.id = r.id
 		LEFT JOIN message_content mc ON rcs.last_message_id = mc.id
@@ -1312,6 +1335,7 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 	for rows.Next() {
 		var t model.TurnSummary
 		var streaming, responseMessageID sql.NullInt64
+		var inputTokens, outputTokens, cacheReads, contextTokens, lastMsgTokens, responseTokens sql.NullInt64
 		var stopReason, requestRole, requestSignature, responseRole, responseSignature sql.NullString
 
 		err := rows.Scan(
@@ -1331,15 +1355,15 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 			&responseSignature,
 			&responseMessageID,
 			&t.ResponseBytes,
-			&t.InputTokens,
-			&t.OutputTokens,
-			&t.CacheReads,
+			&inputTokens,
+			&outputTokens,
+			&cacheReads,
 			&t.SystemCount,
 			&t.ToolsCount,
 			&t.Reason,
-			&t.ContextTokens,
-			&t.LastMsgTokens,
-			&t.ResponseTokens,
+			&contextTokens,
+			&lastMsgTokens,
+			&responseTokens,
 		)
 		if err != nil {
 			continue
@@ -1366,6 +1390,24 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 		}
 		if responseMessageID.Valid {
 			t.ResponseMessageID = &responseMessageID.Int64
+		}
+		if inputTokens.Valid {
+			t.InputTokens = inputTokens.Int64
+		}
+		if outputTokens.Valid {
+			t.OutputTokens = outputTokens.Int64
+		}
+		if cacheReads.Valid {
+			t.CacheReads = cacheReads.Int64
+		}
+		if contextTokens.Valid {
+			t.ContextTokens = contextTokens.Int64
+		}
+		if lastMsgTokens.Valid {
+			t.LastMsgTokens = lastMsgTokens.Int64
+		}
+		if responseTokens.Valid {
+			t.ResponseTokens = responseTokens.Int64
 		}
 
 		turns = append(turns, t)
