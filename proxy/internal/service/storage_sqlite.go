@@ -1307,12 +1307,13 @@ func (s *sqliteStorageService) GetTurns(startTime, endTime, sortBy, sortOrder st
 				), 0) + COALESCE(rcs.system_tokens, 0) + COALESCE(rcs.tools_tokens, 0)
 			END as context_tokens,
 			CASE
-				WHEN COALESCE(mc.token_estimate + 100, 0) > 200000 THEN NULL
-				ELSE COALESCE(mc.token_estimate + 100, 0)
+				WHEN COALESCE(mc.token_estimate, 0) > 200000 THEN NULL
+				ELSE COALESCE(mc.token_estimate, 0)
 			END as last_msg_tokens,
 			CASE
-				WHEN COALESCE(resp_mc.token_estimate + 100, 0) > 200000 THEN NULL
-				ELSE COALESCE(resp_mc.token_estimate + 100, 0)
+				WHEN COALESCE(resp_mc.token_estimate, 0) > 200000 THEN NULL
+				WHEN resp_mc.token_estimate > 0 THEN resp_mc.token_estimate + 100
+				ELSE COALESCE(resp_mc.token_estimate, 0)
 			END as response_tokens
 		FROM requests_context_summary rcs
 		JOIN requests r ON rcs.id = r.id
