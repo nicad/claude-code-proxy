@@ -230,7 +230,7 @@ function MessagePopup({ messageId, position, onClose }: {
         maxWidth: showFull ? '80vw' : '32rem',
         maxHeight: showFull ? '80vh' : '24rem'
       }}
-      onMouseLeave={() => { if (!showFull) onClose(); }}
+      onClick={(e) => e.stopPropagation()}
     >
       {loading ? (
         <div className="flex items-center space-x-2">
@@ -276,24 +276,24 @@ function MessagePopup({ messageId, position, onClose }: {
   );
 }
 
-function MessageIdLink({ id, onHover }: {
+function MessageIdLink({ id, onClick }: {
   id: number;
-  onHover: (id: number, e: React.MouseEvent) => void;
+  onClick: (id: number, e: React.MouseEvent) => void;
 }) {
   return (
     <span
       className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-mono"
-      onMouseEnter={(e) => onHover(id, e)}
+      onClick={(e) => { e.stopPropagation(); onClick(id, e); }}
     >
       {id}
     </span>
   );
 }
 
-function ContextDisplay({ contextDisplay, context, onHover }: {
+function ContextDisplay({ contextDisplay, context, onClick }: {
   contextDisplay: string;
   context: string;
-  onHover: (id: number, e: React.MouseEvent) => void;
+  onClick: (id: number, e: React.MouseEvent) => void;
 }) {
   if (!contextDisplay) return <span className="text-gray-400">-</span>;
 
@@ -319,7 +319,7 @@ function ContextDisplay({ contextDisplay, context, onHover }: {
         return (
           <span key={i}>
             {i > 0 && <span className="text-gray-300">,</span>}
-            <MessageIdLink id={id} onHover={onHover} />
+            <MessageIdLink id={id} onClick={onClick} />
           </span>
         );
       })}
@@ -1122,11 +1122,11 @@ export default function TurnsIndex() {
     setSearchParams({ start: newRange.start, end: newRange.end });
   };
 
-  const handleMessageHover = (id: number, e: React.MouseEvent) => {
+  const handleMessageClick = (id: number, e: React.MouseEvent) => {
     setPopup({ messageId: id, x: e.clientX, y: e.clientY });
   };
 
-  const handleBodyHover = (requestId: string, type: 'request' | 'response', e: React.MouseEvent) => {
+  const handleBodyClick = (requestId: string, type: 'request' | 'response', e: React.MouseEvent) => {
     setBodyPopup({ requestId, type, x: e.clientX, y: e.clientY });
   };
 
@@ -1355,14 +1355,14 @@ export default function TurnsIndex() {
                         <ContextDisplay
                           contextDisplay={turn.contextDisplay}
                           context={turn.context}
-                          onHover={handleMessageHover}
+                          onClick={handleMessageClick}
                         />
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-gray-700">
                         {turn.messageCount}
                       </td>
                       <td className="px-3 py-2 text-right text-xs">
-                        <MessageIdLink id={turn.lastMessageId} onHover={handleMessageHover} />
+                        <MessageIdLink id={turn.lastMessageId} onClick={handleMessageClick} />
                       </td>
                       <td className="px-3 py-2">
                         <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
@@ -1375,7 +1375,7 @@ export default function TurnsIndex() {
                       </td>
                       <td
                         className="px-3 py-2 text-amber-700 border-l border-gray-200 cursor-pointer hover:bg-amber-50 underline"
-                        onMouseEnter={(e) => handleBodyHover(turn.id, 'request', e)}
+                        onClick={(e) => handleBodyClick(turn.id, 'request', e)}
                       >
                         {turn.requestRole || '-'}
                       </td>
@@ -1393,14 +1393,14 @@ export default function TurnsIndex() {
                       </td>
                       <td
                         className="px-3 py-2 text-green-600 border-l border-gray-200 cursor-pointer hover:bg-green-50 underline"
-                        onMouseEnter={(e) => handleBodyHover(turn.id, 'response', e)}
+                        onClick={(e) => handleBodyClick(turn.id, 'response', e)}
                       >
                         {turn.responseRole || '-'}
                       </td>
                       <td
                         className={`px-3 py-2 text-green-500 max-w-[120px] truncate ${turn.responseMessageId ? 'cursor-pointer hover:bg-green-50 underline' : ''}`}
                         title={turn.responseSignature || undefined}
-                        onMouseEnter={(e) => turn.responseMessageId && handleMessageHover(turn.responseMessageId, e)}
+                        onClick={(e) => turn.responseMessageId && handleMessageClick(turn.responseMessageId, e)}
                       >
                         {turn.responseSignature || '-'}
                       </td>
@@ -1439,13 +1439,19 @@ export default function TurnsIndex() {
           </div>
         </div>
 
-        {/* Message popup */}
+        {/* Message popup with backdrop */}
         {popup && (
-          <MessagePopup
-            messageId={popup.messageId}
-            position={{ x: popup.x, y: popup.y }}
-            onClose={() => setPopup(null)}
-          />
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setPopup(null)}
+            />
+            <MessagePopup
+              messageId={popup.messageId}
+              position={{ x: popup.x, y: popup.y }}
+              onClose={() => setPopup(null)}
+            />
+          </>
         )}
 
         {/* Request/Response body popup with backdrop */}
