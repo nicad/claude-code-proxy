@@ -670,6 +670,19 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 		log.Printf("❌ Error updating request with streaming response: %v", err)
 	}
 
+	// Index the request for turns view
+	bodyBytes, err := json.Marshal(requestLog.Body)
+	if err != nil {
+		log.Printf("⚠️ Error marshaling body for indexing: %v", err)
+	} else {
+		respBytes, err := json.Marshal(requestLog.Response)
+		if err != nil {
+			log.Printf("⚠️ Error marshaling response for indexing: %v", err)
+		} else if err := h.storageService.IndexRequest(requestLog.RequestID, requestLog.Timestamp, bodyBytes, respBytes); err != nil {
+			log.Printf("⚠️ Error indexing request: %v", err)
+		}
+	}
+
 	log.Printf("← [SENT] id=%s stream=true duration_ms=%d chunks=%d",
 		requestLog.RequestID, time.Since(startTime).Milliseconds(), chunkCount)
 }
@@ -724,6 +737,19 @@ func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.R
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(responseBytes)
+
+	// Index the request for turns view (only for successful responses)
+	bodyBytes, err := json.Marshal(requestLog.Body)
+	if err != nil {
+		log.Printf("⚠️ Error marshaling body for indexing: %v", err)
+	} else {
+		respBytes, err := json.Marshal(requestLog.Response)
+		if err != nil {
+			log.Printf("⚠️ Error marshaling response for indexing: %v", err)
+		} else if err := h.storageService.IndexRequest(requestLog.RequestID, requestLog.Timestamp, bodyBytes, respBytes); err != nil {
+			log.Printf("⚠️ Error indexing request: %v", err)
+		}
+	}
 
 	log.Printf("← [SENT] id=%s stream=false duration_ms=%d",
 		requestLog.RequestID, time.Since(startTime).Milliseconds())

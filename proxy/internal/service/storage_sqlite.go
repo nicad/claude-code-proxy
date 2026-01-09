@@ -15,8 +15,9 @@ import (
 )
 
 type sqliteStorageService struct {
-	db     *sql.DB
-	config *config.StorageConfig
+	db      *sql.DB
+	config  *config.StorageConfig
+	indexer *Indexer
 }
 
 func NewSQLiteStorageService(cfg *config.StorageConfig) (StorageService, error) {
@@ -27,13 +28,21 @@ func NewSQLiteStorageService(cfg *config.StorageConfig) (StorageService, error) 
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	indexer := NewIndexer(db)
+
 	service := &sqliteStorageService{
-		db:     db,
-		config: cfg,
+		db:      db,
+		config:  cfg,
+		indexer: indexer,
 	}
 
 	if err := service.createTables(); err != nil {
 		return nil, fmt.Errorf("failed to create tables: %w", err)
+	}
+
+	// Create indexing tables (message_content, messages, requests_context)
+	if err := indexer.CreateTables(false); err != nil {
+		return nil, fmt.Errorf("failed to create indexing tables: %w", err)
 	}
 
 	return service, nil
@@ -1443,4 +1452,9 @@ func (s *sqliteStorageService) GetMessageContent(id int64) (*model.MessageConten
 
 	rec.Content = json.RawMessage(content)
 	return &rec, nil
+}
+
+// IndexRequest indexes a request by extracting messages and storing them in message_content, messages, and requests_context tables
+func (s *sqliteStorageService) IndexRequest(requestID, timestamp string, body, response json.RawMessage) error {
+	return s.indexer.IndexRequest(requestID, timestamp, body, response)
 }

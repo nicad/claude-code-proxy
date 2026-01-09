@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/seifghazi/claude-code-monitor/internal/config"
@@ -29,4 +30,6 @@ type StorageService interface {
 	// Turns tab methods
 	GetTurns(startTime, endTime, sortBy, sortOrder string) ([]model.TurnSummary, int, error)
 	GetMessageContent(id int64) (*model.MessageContentRecord, error)
+	// Live indexing
+	IndexRequest(requestID, timestamp string, body, response json.RawMessage) error
 }
