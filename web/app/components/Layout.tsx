@@ -14,8 +14,8 @@ export function Layout({ children, onRefresh, onClear, showActions = true }: Lay
   const getActiveTab = () => {
     if (location.pathname.startsWith("/conversations")) return "conversations";
     if (location.pathname.startsWith("/tokens")) return "tokens";
-    if (location.pathname.startsWith("/turns")) return "turns";
-    return "requests";
+    if (location.pathname.startsWith("/requests")) return "requests";
+    return "turns";
   };
 
   const activeTab = getActiveTab();
@@ -59,14 +59,14 @@ export function Layout({ children, onRefresh, onClear, showActions = true }: Lay
       <div className="mb-4 flex justify-center pt-4">
         <div className="inline-flex items-center bg-gray-100 rounded p-0.5">
           <Link
-            to="/requests"
+            to="/turns"
             className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-              activeTab === "requests"
+              activeTab === "turns"
                 ? "bg-white text-gray-900 shadow-sm"
                 : "text-gray-600 hover:text-gray-900"
             }`}
           >
-            Requests
+            Turns
           </Link>
           <Link
             to="/conversations"
@@ -76,7 +76,7 @@ export function Layout({ children, onRefresh, onClear, showActions = true }: Lay
                 : "text-gray-600 hover:text-gray-900"
             }`}
           >
-            Conversations
+            Stored Conversations
           </Link>
           <Link
             to="/tokens"
@@ -89,14 +89,14 @@ export function Layout({ children, onRefresh, onClear, showActions = true }: Lay
             Tokens
           </Link>
           <Link
-            to="/turns"
+            to="/requests"
             className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-              activeTab === "turns"
+              activeTab === "requests"
                 ? "bg-white text-gray-900 shadow-sm"
                 : "text-gray-600 hover:text-gray-900"
             }`}
           >
-            Turns
+            Legacy Requests
           </Link>
         </div>
       </div>
