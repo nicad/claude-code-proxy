@@ -15,8 +15,8 @@ interface HourlyUsage {
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "Token Usage - Claude Code Monitor" },
-    { name: "description", content: "Claude Code Monitor - Token Usage" },
+    { title: "Token Usage - Anthropic API Monitor" },
+    { name: "description", content: "Anthropic API Monitor - Token Usage" },
   ];
 };
 

@@ -8,8 +8,8 @@ import RequestDetailContent from "../components/RequestDetailContent";
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "Request Details - Claude Code Monitor" },
-    { name: "description", content: "Claude Code Monitor - Request Details" },
+    { title: "Request Details - Anthropic API Monitor" },
+    { name: "description", content: "Anthropic API Monitor - Request Details" },
   ];
 };
 

@@ -17,8 +17,8 @@ import { getChatCompletionsEndpoint } from "../utils/models";
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "Requests - Claude Code Monitor" },
-    { name: "description", content: "Claude Code Monitor - Request History" },
+    { title: "Requests - Anthropic API Monitor" },
+    { name: "description", content: "Anthropic API Monitor - Request History" },
   ];
 };
 

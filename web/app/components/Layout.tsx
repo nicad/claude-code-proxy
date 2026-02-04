@@ -27,7 +27,7 @@ export function Layout({ children, onRefresh, onClear, showActions = true }: Lay
         <div className="px-6 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <h1 className="text-lg font-semibold text-gray-900">Claude Code Monitor</h1>
+              <h1 className="text-lg font-semibold text-gray-900">Anthropic API Monitor</h1>
             </div>
             {showActions && (
               <div className="flex items-center space-x-2">

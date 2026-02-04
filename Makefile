@@ -24,7 +24,7 @@ build-web:
 # Run in development mode
 dev: build-proxy
 	@echo "🚀 Starting development servers..."
-	./run.sh
+	./anthropic-proxy.sh start --stdout
 
 # Run proxy only
 run-proxy:

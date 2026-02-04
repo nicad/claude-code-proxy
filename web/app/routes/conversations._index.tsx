@@ -7,8 +7,8 @@ import { Layout } from "../components/Layout";
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "Conversations - Claude Code Monitor" },
-    { name: "description", content: "Claude Code Monitor - Conversations" },
+    { title: "Conversations - Anthropic API Monitor" },
+    { name: "description", content: "Anthropic API Monitor - Conversations" },
   ];
 };
 

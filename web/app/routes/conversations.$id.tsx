@@ -8,8 +8,8 @@ import { ConversationThread } from "../components/ConversationThread";
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "Conversation Details - Claude Code Monitor" },
-    { name: "description", content: "Claude Code Monitor - Conversation Details" },
+    { title: "Conversation Details - Anthropic API Monitor" },
+    { name: "description", content: "Anthropic API Monitor - Conversation Details" },
   ];
 };
 

@@ -56,3 +56,6 @@ config.yaml
 
 # Binaries
 proxy/ccproxy
+
+# Proxy data directory
+.anthropic-proxy/

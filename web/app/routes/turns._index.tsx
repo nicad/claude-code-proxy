@@ -8,8 +8,8 @@ import { escapeHtml } from "../utils/formatters";
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "Turns - Claude Code Monitor" },
-    { name: "description", content: "Claude Code Monitor - Request Turns" },
+    { title: "Turns - Anthropic API Monitor" },
+    { name: "description", content: "Anthropic API Monitor - Request Turns" },
   ];
 };
 
