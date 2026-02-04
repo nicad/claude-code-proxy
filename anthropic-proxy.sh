@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DATA_DIR="$SCRIPT_DIR/.anthropic-proxy"
+DATA_DIR="$PWD/.anthropic-proxy"
 PROXY_BIN="$SCRIPT_DIR/bin/proxy"
 WEB_DIR="$SCRIPT_DIR/web"
 
@@ -153,6 +153,8 @@ cmd_restart() {
 
 cmd_status() {
   echo "anthropic-proxy status"
+  echo ""
+  echo "Data directory: $DATA_DIR"
   echo ""
 
   if [[ -f "$DATA_DIR/.env" ]]; then
