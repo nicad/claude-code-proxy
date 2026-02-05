@@ -1,4 +1,5 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
+import { getApiUrl } from "../utils/api";
 
 export const loader = async ({ params }: LoaderFunctionArgs) => {
   const { id } = params;
@@ -11,7 +12,7 @@ export const loader = async ({ params }: LoaderFunctionArgs) => {
   }
 
   try {
-    const response = await fetch(`http://localhost:3001/api/requests/${id}`);
+    const response = await fetch(getApiUrl(`/api/requests/${id}`));
     const data = await response.json();
 
     return new Response(JSON.stringify(data), {

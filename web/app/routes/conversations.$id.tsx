@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { Layout } from "../components/Layout";
 import { ConversationThread } from "../components/ConversationThread";
+import { getApiUrl } from "../utils/api";
 
 export const meta: MetaFunction = () => {
   return [
@@ -27,7 +28,7 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
   }
 
   try {
-    const apiUrl = new URL(`http://localhost:3001/api/conversations/${id}`);
+    const apiUrl = new URL(getApiUrl(`/api/conversations/${id}`));
     apiUrl.searchParams.append("project", project);
 
     const response = await fetch(apiUrl.toString());

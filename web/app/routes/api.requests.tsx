@@ -1,5 +1,6 @@
 import type { ActionFunction, LoaderFunction } from "@remix-run/node";
 import { json } from "@remix-run/node";
+import { getApiUrl } from "../utils/api";
 
 export const loader: LoaderFunction = async ({ request }) => {
   try {
@@ -9,7 +10,7 @@ export const loader: LoaderFunction = async ({ request }) => {
     const limit = url.searchParams.get("limit");
 
     // Forward the request to the Go backend
-    const backendUrl = new URL('http://localhost:3001/api/requests');
+    const backendUrl = new URL(getApiUrl('/api/requests'));
     if (modelFilter) {
       backendUrl.searchParams.append('model', modelFilter);
     }
@@ -42,7 +43,7 @@ export const action: ActionFunction = async ({ request }) => {
   if (method === "DELETE") {
     try {
       // Forward the DELETE request to the Go backend
-      const response = await fetch('http://localhost:3001/api/requests', {
+      const response = await fetch(getApiUrl('/api/requests'), {
         method: 'DELETE'
       });
       

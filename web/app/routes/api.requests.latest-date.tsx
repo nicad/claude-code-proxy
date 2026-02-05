@@ -1,9 +1,10 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
+import { getApiUrl } from "../utils/api";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   try {
-    const response = await fetch("http://localhost:3001/api/requests/latest-date");
+    const response = await fetch(getApiUrl("/api/requests/latest-date"));
 
     if (!response.ok) {
       return json({ latestDate: null });

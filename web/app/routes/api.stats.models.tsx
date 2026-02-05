@@ -1,5 +1,6 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
+import { getApiUrl } from "../utils/api";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   try {
@@ -12,7 +13,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     }
 
     const params = new URLSearchParams({ start, end });
-    const proxyUrl = `http://localhost:3001/api/stats/models?${params.toString()}`;
+    const proxyUrl = getApiUrl(`/api/stats/models?${params.toString()}`);
     const response = await fetch(proxyUrl);
 
     if (!response.ok) {

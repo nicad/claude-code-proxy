@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { Layout } from "../components/Layout";
 import RequestDetailContent from "../components/RequestDetailContent";
+import { getApiUrl } from "../utils/api";
 
 export const meta: MetaFunction = () => {
   return [
@@ -21,7 +22,7 @@ export const loader = async ({ params }: LoaderFunctionArgs) => {
   }
 
   try {
-    const response = await fetch(`http://localhost:3001/api/requests/${id}`);
+    const response = await fetch(getApiUrl(`/api/requests/${id}`));
 
     if (!response.ok) {
       console.error(`Failed to fetch request ${id}: ${response.status} ${response.statusText}`);

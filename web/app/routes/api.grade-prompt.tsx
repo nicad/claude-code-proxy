@@ -1,16 +1,17 @@
 import type { ActionFunction } from "@remix-run/node";
 import { json } from "@remix-run/node";
+import { getApiUrl } from "../utils/api";
 
 export const action: ActionFunction = async ({ request }) => {
   if (request.method !== "POST") {
     return json({ error: 'Method not allowed' }, { status: 405 });
   }
-  
+
   try {
     const body = await request.json();
-    
+
     // Forward the request to the Go backend
-    const response = await fetch('http://localhost:3001/api/grade-prompt', {
+    const response = await fetch(getApiUrl('/api/grade-prompt'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

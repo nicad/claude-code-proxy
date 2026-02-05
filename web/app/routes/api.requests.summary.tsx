@@ -1,12 +1,13 @@
 import type { LoaderFunction } from "@remix-run/node";
 import { json } from "@remix-run/node";
+import { getApiUrl } from "../utils/api";
 
 export const loader: LoaderFunction = async ({ request }) => {
   try {
     const url = new URL(request.url);
 
     // Forward all query params to the Go backend
-    const backendUrl = new URL("http://localhost:3001/api/requests/summary");
+    const backendUrl = new URL(getApiUrl("/api/requests/summary"));
     url.searchParams.forEach((value, key) => {
       backendUrl.searchParams.append(key, value);
     });
