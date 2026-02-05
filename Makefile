@@ -12,7 +12,7 @@ install:
 
 # Create config with fixed dev ports (only if not exists)
 install-config:
-	@./anthropic-proxy.sh config --proxy-port 3001 --ui-port 5173
+	@./anthropic-proxy.sh create --proxy-port 3001 --ui-port 5173
 
 # Build both services
 build: build-proxy build-web

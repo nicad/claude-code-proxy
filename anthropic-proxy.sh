@@ -32,7 +32,7 @@ get_pid() {
   cat "$DATA_DIR/$1.pid" 2>/dev/null || echo ""
 }
 
-cmd_config() {
+cmd_create() {
   local do_start=false
   local proxy_port=""
   local ui_port=""
@@ -173,21 +173,13 @@ cmd_restart() {
 }
 
 cmd_status() {
+  [[ -f "$DATA_DIR/.env" ]] && source "$DATA_DIR/.env"
+  PROXY_PORT="${PROXY_PORT:-3001}"
+  UI_PORT="${UI_PORT:-5173}"
+
   echo "anthropic-proxy status"
   echo ""
   echo "Data directory: $DATA_DIR"
-  echo ""
-
-  if [[ -f "$DATA_DIR/.env" ]]; then
-    source "$DATA_DIR/.env"
-    echo "Configuration:"
-    echo "  PROXY_PORT=${PROXY_PORT:-3001}"
-    echo "  UI_PORT=${UI_PORT:-5173}"
-  else
-    echo "Not configured (using defaults)"
-    echo "  PROXY_PORT=3001"
-    echo "  UI_PORT=5173"
-  fi
   echo ""
 
   echo "Services:"
@@ -198,23 +190,31 @@ cmd_status() {
       echo "  $service: stopped"
     fi
   done
+
+  if is_running proxy; then
+    echo ""
+    echo "Proxy:  export ANTHROPIC_BASE_URL=http://localhost:$PROXY_PORT"
+  fi
+  if is_running web; then
+    echo "Web UI: http://localhost:$UI_PORT"
+  fi
 }
 
 case "${1:-}" in
-  config)  shift; cmd_config "$@" ;;
+  create)  shift; cmd_create "$@" ;;
   start)   shift; cmd_start "$@" ;;
   stop)    cmd_stop ;;
   restart) shift; cmd_restart "$@" ;;
   status)  cmd_status ;;
   *)
-    echo "Usage: anthropic-proxy.sh {config|start|stop|restart|status}"
+    echo "Usage: anthropic-proxy.sh {create|start|stop|restart|status}"
     echo ""
     echo "Commands:"
-    echo "  config [--start] [--proxy-port PORT] [--ui-port PORT]"
-    echo "                        Create .anthropic-proxy/ config"
+    echo "  create [--start] [--proxy-port PORT] [--ui-port PORT]"
+    echo "                        Create .anthropic-proxy/ directory and config"
     echo "  start [--stdout]      Start proxy and web UI"
     echo "  stop                  Stop services"
     echo "  restart [--stdout]    Restart services"
-    echo "  status                Show service status"
+    echo "  status                Show service status and URLs"
     ;;
 esac
