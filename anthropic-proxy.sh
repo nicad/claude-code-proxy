@@ -95,6 +95,9 @@ cmd_start() {
       echo "Shutting down services..."
       kill "$(get_pid proxy)" "$(get_pid web)" 2>/dev/null || true
       rm -f "$DATA_DIR/proxy.pid" "$DATA_DIR/web.pid"
+      # Reset terminal: clear attributes, show cursor, reset line settings
+      printf '\e[0m\e[?25h'
+      stty sane 2>/dev/null || true
       exit
     }
     trap cleanup EXIT INT TERM
