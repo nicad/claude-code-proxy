@@ -8,6 +8,17 @@ WEB_DIR="$SCRIPT_DIR/web"
 
 die() { echo "Error: $1" >&2; exit 1; }
 
+find_free_port() {
+  local port
+  while true; do
+    port=$((RANDOM % 10000 + 10000))  # 10000-19999
+    if ! lsof -i:$port >/dev/null 2>&1; then
+      echo $port
+      return
+    fi
+  done
+}
+
 ensure_data_dir() {
   mkdir -p "$DATA_DIR"
 }
@@ -23,9 +34,14 @@ get_pid() {
 
 cmd_config() {
   local do_start=false
+  local proxy_port=""
+  local ui_port=""
+
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --start) do_start=true; shift ;;
+      --proxy-port) proxy_port="$2"; shift 2 ;;
+      --ui-port) ui_port="$2"; shift 2 ;;
       *) die "Unknown option: $1" ;;
     esac
   done
@@ -33,12 +49,14 @@ cmd_config() {
   ensure_data_dir
 
   if [[ ! -f "$DATA_DIR/.env" ]]; then
+    proxy_port="${proxy_port:-$(find_free_port)}"
+    ui_port="${ui_port:-$(find_free_port)}"
+
     cat > "$DATA_DIR/.env" <<EOF
-# anthropic-proxy configuration
-PROXY_PORT=3001
-UI_PORT=5173
+PROXY_PORT=$proxy_port
+UI_PORT=$ui_port
 EOF
-    echo "Created $DATA_DIR/.env"
+    echo "Created $DATA_DIR/.env (proxy: $proxy_port, ui: $ui_port)"
   else
     echo "Config already exists at $DATA_DIR/.env"
   fi
@@ -106,7 +124,7 @@ cmd_start() {
   else
     echo "Starting proxy on port $PROXY_PORT..."
     PORT=$PROXY_PORT DB_PATH="$DATA_DIR/requests.db" \
-      node "$SCRIPT_DIR/rotate.js" "$DATA_DIR/proxy.log" "$PROXY_BIN" &
+      node "$SCRIPT_DIR/rotate.mjs" "$DATA_DIR/proxy.log" "$PROXY_BIN" &
     echo $! > "$DATA_DIR/proxy.pid"
 
     sleep 1
@@ -114,7 +132,7 @@ cmd_start() {
     echo "Starting web UI on port $UI_PORT..."
     cd "$WEB_DIR"
     VITE_API_URL="http://localhost:$PROXY_PORT" \
-      node "$SCRIPT_DIR/rotate.js" "$DATA_DIR/web.log" npm run dev -- --port "$UI_PORT" &
+      node "$SCRIPT_DIR/rotate.mjs" "$DATA_DIR/web.log" npm run dev -- --port "$UI_PORT" &
     echo $! > "$DATA_DIR/web.pid"
     cd - >/dev/null
 
@@ -189,7 +207,8 @@ case "${1:-}" in
     echo "Usage: anthropic-proxy.sh {config|start|stop|restart|status}"
     echo ""
     echo "Commands:"
-    echo "  config [--start]      Create .anthropic-proxy/ config"
+    echo "  config [--start] [--proxy-port PORT] [--ui-port PORT]"
+    echo "                        Create .anthropic-proxy/ config"
     echo "  start [--stdout]      Start proxy and web UI"
     echo "  stop                  Stop services"
     echo "  restart [--stdout]    Restart services"

@@ -1,4 +1,4 @@
-.PHONY: all build run clean install dev
+.PHONY: all build run clean install install-config dev
 
 # Default target
 all: install build
@@ -9,6 +9,10 @@ install:
 	cd proxy && go mod download
 	@echo "📦 Installing Node dependencies..."
 	cd web && npm install
+
+# Create config with fixed dev ports (only if not exists)
+install-config:
+	@./anthropic-proxy.sh config --proxy-port 3001 --ui-port 5173
 
 # Build both services
 build: build-proxy build-web
@@ -22,9 +26,9 @@ build-web:
 	cd web && npm run build
 
 # Run in development mode
-dev: build-proxy
+dev: install install-config build-proxy
 	@echo "🚀 Starting development servers..."
-	./anthropic-proxy.sh start --stdout
+	./anthropic-proxy.sh restart --stdout
 
 # Run proxy only
 run-proxy:
