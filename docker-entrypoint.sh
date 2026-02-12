@@ -28,6 +28,7 @@ echo "========================================="
 
 # Start proxy server
 echo "🔄 Starting proxy server..."
+HOST=0.0.0.0 \
 PORT=${PORT} \
 READ_TIMEOUT=${READ_TIMEOUT}s \
 WRITE_TIMEOUT=${WRITE_TIMEOUT}s \

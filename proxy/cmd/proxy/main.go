@@ -142,7 +142,7 @@ func runServe(args []string) error {
 	// If CORS is needed for web UI, add it back but exclude /v1/* routes
 
 	srv := &http.Server{
-		Addr:         ":" + cfg.Server.Port,
+		Addr:         cfg.Server.Host + ":" + cfg.Server.Port,
 		Handler:      r,
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
@@ -150,14 +150,14 @@ func runServe(args []string) error {
 	}
 
 	go func() {
-		logger.Printf("🚀 Claude Code Monitor Server running on http://localhost:%s", cfg.Server.Port)
+		logger.Printf("🚀 Claude Code Monitor Server running on http://%s:%s", cfg.Server.Host, cfg.Server.Port)
 		logger.Printf("📡 API endpoints available at:")
-		logger.Printf("   - POST http://localhost:%s/v1/messages (Anthropic format)", cfg.Server.Port)
-		logger.Printf("   - GET  http://localhost:%s/v1/models", cfg.Server.Port)
-		logger.Printf("   - GET  http://localhost:%s/health", cfg.Server.Port)
+		logger.Printf("   - POST http://%s:%s/v1/messages (Anthropic format)", cfg.Server.Host, cfg.Server.Port)
+		logger.Printf("   - GET  http://%s:%s/v1/models", cfg.Server.Host, cfg.Server.Port)
+		logger.Printf("   - GET  http://%s:%s/health", cfg.Server.Host, cfg.Server.Port)
 		logger.Printf("🎨 Web UI available at:")
-		logger.Printf("   - GET  http://localhost:%s/ (Request Visualizer)", cfg.Server.Port)
-		logger.Printf("   - GET  http://localhost:%s/api/requests (Request API)", cfg.Server.Port)
+		logger.Printf("   - GET  http://%s:%s/ (Request Visualizer)", cfg.Server.Host, cfg.Server.Port)
+		logger.Printf("   - GET  http://%s:%s/api/requests (Request API)", cfg.Server.Host, cfg.Server.Port)
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatalf("❌ Server failed to start: %v", err)

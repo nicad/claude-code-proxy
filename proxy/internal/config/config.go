@@ -19,6 +19,7 @@ type Config struct {
 }
 
 type ServerConfig struct {
+	Host     string         `yaml:"host"`
 	Port     string         `yaml:"port"`
 	Timeouts TimeoutsConfig `yaml:"timeouts"`
 	// Legacy fields
@@ -80,6 +81,7 @@ func Load() (*Config, error) {
 	// Start with default configuration
 	cfg := &Config{
 		Server: ServerConfig{
+			Host:         "127.0.0.1",
 			Port:         "3001",
 			ReadTimeout:  600 * time.Second,
 			WriteTimeout: 600 * time.Second,
@@ -123,6 +125,9 @@ func Load() (*Config, error) {
 	cfg.loadFromFile(configPath)
 
 	// Apply environment variable overrides AFTER loading from file
+	if envHost := os.Getenv("HOST"); envHost != "" {
+		cfg.Server.Host = envHost
+	}
 	if envPort := os.Getenv("PORT"); envPort != "" {
 		cfg.Server.Port = envPort
 	}
